@@ -3,6 +3,7 @@ import { WasmLoader } from './wasm/loader';
 import { ThemeManager } from './rendering/theme-manager';
 import { Renderer2D } from './rendering/renderer-2d';
 import { Renderer3D } from './rendering/renderer-3d';
+import { EquationAnalyzer } from './utils/equation-analyzer';
 import type { GraphConfig, MathEngineModule, Point, InterestingPoint, GraphResult } from './types';
 import { DEFAULT_GRAPH_CONFIG } from './types';
 
@@ -51,7 +52,7 @@ export default class MathGraphPlugin extends Plugin {
 		ctx: MarkdownPostProcessorContext
 	): Promise<void> {
 		// Parse the configuration from the code block
-		const config = this.parseConfig(source);
+		const config = await this.parseConfig(source);
 
 		if (!config.equation) {
 			this.renderError(el, 'No equation specified. Use: equation: <formula>');
@@ -96,10 +97,76 @@ export default class MathGraphPlugin extends Plugin {
 
 	/**
 	 * Parse configuration from code block source
+	 * Now supports simple syntax (just equation) and intelligent range detection
 	 */
-	private parseConfig(source: string): GraphConfig {
-		const config: Partial<GraphConfig> = { ...DEFAULT_GRAPH_CONFIG };
+	private async parseConfig(source: string): Promise<GraphConfig> {
+		const trimmed = source.trim();
 		
+		// Check if it's just a plain equation (no colons/YAML)
+		const hasYamlSyntax = trimmed.includes(':');
+		
+		if (!hasYamlSyntax && trimmed.length > 0) {
+			// Simple mode: just an equation
+			return await this.parseSimpleEquation(trimmed);
+		}
+		
+		// Complex mode: YAML-like syntax with optional overrides
+		return await this.parseYamlConfig(source);
+	}
+
+	/**
+	 * Parse simple equation format: just the equation text
+	 * Uses intelligent analysis to determine everything
+	 */
+	private async parseSimpleEquation(equation: string): Promise<GraphConfig> {
+		if (!this.wasmModule) {
+			throw new Error('WASM module not initialized');
+		}
+
+		console.log('Analyzing equation for intelligent defaults:', equation);
+		
+		// Analyze the equation to get smart recommendations
+		const analysis = await EquationAnalyzer.analyzeEquation(
+			equation,
+			this.wasmModule
+		);
+
+		console.log('Analysis results:', {
+			type: analysis.type,
+			xRange: analysis.recommendedXRange,
+			yRange: analysis.recommendedYRange,
+			confidence: analysis.confidence,
+			hasDiscontinuities: analysis.hasDiscontinuities,
+			isConstant: analysis.isConstant
+		});
+
+		const config: GraphConfig = {
+			equation,
+			type: analysis.type,
+			resolution: EquationAnalyzer.getSmartResolution(analysis.type),
+			xMin: analysis.recommendedXRange[0],
+			xMax: analysis.recommendedXRange[1],
+			// Smart defaults based on type
+			...(analysis.type === '2d' ? {
+				width: 700,
+				height: 500,
+			} : {
+				yMin: analysis.recommendedYRange![0],
+				yMax: analysis.recommendedYRange![1],
+				width: 700,
+				height: 700,
+			})
+		};
+
+		return this.validateConfig(config);
+	}
+
+	/**
+	 * Parse YAML-like config with overrides
+	 * Can optionally use intelligent analysis for unspecified ranges
+	 */
+	private async parseYamlConfig(source: string): Promise<GraphConfig> {
+		const config: Partial<GraphConfig> = {};
 		const lines = source.split('\n');
 		
 		for (const line of lines) {
@@ -107,7 +174,13 @@ export default class MathGraphPlugin extends Plugin {
 			if (!trimmed || trimmed.startsWith('#')) continue;
 
 			const colonIndex = trimmed.indexOf(':');
-			if (colonIndex === -1) continue;
+			if (colonIndex === -1) {
+				// If no colon and we don't have an equation yet, treat whole line as equation
+				if (!config.equation) {
+					config.equation = trimmed;
+				}
+				continue;
+			}
 
 			const key = trimmed.substring(0, colonIndex).trim().toLowerCase();
 			const value = trimmed.substring(colonIndex + 1).trim();
@@ -155,13 +228,92 @@ export default class MathGraphPlugin extends Plugin {
 					break;
 			}
 		}
-
-		// Default to 2d if not specified
-		if (!config.type) {
-			config.type = '2d';
+		
+		if (!config.equation) {
+			throw new Error('No equation specified');
 		}
 
-		return config as GraphConfig;
+		// Apply smart defaults for missing values
+		return await this.applySmartDefaults(config);
+	}
+
+	/**
+	 * Apply smart defaults based on graph type
+	 * Uses intelligent analysis if ranges are not specified
+	 */
+	private async applySmartDefaults(config: Partial<GraphConfig>): Promise<GraphConfig> {
+		if (!this.wasmModule) {
+			throw new Error('WASM module not initialized');
+		}
+
+		// Auto-infer type if not specified
+		if (!config.type) {
+			config.type = EquationAnalyzer.inferType(config.equation!);
+		}
+
+		const type = config.type;
+
+		// If ranges are not specified, use intelligent analysis
+		const needsAnalysis = 
+			config.xMin === undefined || 
+			config.xMax === undefined ||
+			(type === '3d' && (config.yMin === undefined || config.yMax === undefined));
+
+		if (needsAnalysis) {
+			console.log('Running intelligent range analysis for partial config');
+			const analysis = await EquationAnalyzer.analyzeEquation(
+				config.equation!,
+				this.wasmModule,
+				type
+			);
+
+			config.xMin = config.xMin ?? analysis.recommendedXRange[0];
+			config.xMax = config.xMax ?? analysis.recommendedXRange[1];
+
+			if (type === '3d' && analysis.recommendedYRange) {
+				config.yMin = config.yMin ?? analysis.recommendedYRange[0];
+				config.yMax = config.yMax ?? analysis.recommendedYRange[1];
+			}
+		}
+
+		// Apply remaining defaults
+		const defaults: GraphConfig = {
+			equation: config.equation!,
+			type,
+			resolution: config.resolution ?? EquationAnalyzer.getSmartResolution(type),
+			xMin: config.xMin ?? (type === '2d' ? -10 : -5),
+			xMax: config.xMax ?? (type === '2d' ? 10 : 5),
+			width: config.width ?? 700,
+			height: config.height ?? (type === '2d' ? 500 : 700),
+		};
+
+		// Add 3D-specific defaults
+		if (type === '3d') {
+			defaults.yMin = config.yMin ?? -5;
+			defaults.yMax = config.yMax ?? 5;
+		}
+
+		return this.validateConfig(defaults);
+	}
+
+	/**
+	 * Validate and cap resolution to prevent WASM memory errors
+	 */
+	private validateConfig(config: GraphConfig): GraphConfig {
+		const MAX_2D_RESOLUTION = 1000;
+		const MAX_3D_RESOLUTION = 100;  // 100x100 = 10,000 points max
+
+		if (config.type === '2d' && config.resolution! > MAX_2D_RESOLUTION) {
+			console.warn(`2D resolution ${config.resolution} exceeds maximum ${MAX_2D_RESOLUTION}, capping`);
+			config.resolution = MAX_2D_RESOLUTION;
+		}
+
+		if (config.type === '3d' && config.resolution! > MAX_3D_RESOLUTION) {
+			console.warn(`3D resolution ${config.resolution} exceeds maximum ${MAX_3D_RESOLUTION}, capping`);
+			config.resolution = MAX_3D_RESOLUTION;
+		}
+
+		return config;
 	}
 
 	/**
