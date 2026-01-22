@@ -35,10 +35,12 @@ export class EquationAnalyzer {
     const matches = cleanedEq.matchAll(varPattern);
     
     for (const match of matches) {
-      const varName = match[1].toLowerCase();
-      // Filter out common constants that might appear
-      if (varName !== 'e') {  // 'e' is usually Euler's number
-        variables.add(varName);
+      if (match[1]) {
+        const varName = match[1].toLowerCase();
+        // Filter out common constants that might appear
+        if (varName !== 'e') {  // 'e' is usually Euler's number
+          variables.add(varName);
+        }
       }
     }
     
@@ -108,7 +110,9 @@ export class EquationAnalyzer {
     let isConstant = false;
     
     // Try different scanning ranges and pick the best
-    for (const [xMin, xMax] of scanRanges) {
+    for (const scanRange of scanRanges) {
+      const xMin = scanRange[0]!;
+      const xMax = scanRange[1]!;
       try {
         // Sample with coarse resolution for analysis
         const result = wasmModule.calculate2D(equation, xMin, xMax, 100);
@@ -293,18 +297,18 @@ export class EquationAnalyzer {
     const sorted = [...values].sort((a, b) => a - b);
     const n = sorted.length;
     
-    const min = sorted[0];
-    const max = sorted[n - 1];
+    const min = sorted[0]!;
+    const max = sorted[n - 1]!;
     const mean = values.reduce((a, b) => a + b, 0) / n;
     const median = n % 2 === 0 
-      ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 
-      : sorted[Math.floor(n / 2)];
+      ? (sorted[n / 2 - 1]! + sorted[n / 2]!) / 2 
+      : sorted[Math.floor(n / 2)]!;
     
     const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / n;
     const stdDev = Math.sqrt(variance);
     
-    const q25 = sorted[Math.floor(n * 0.25)];
-    const q75 = sorted[Math.floor(n * 0.75)];
+    const q25 = sorted[Math.floor(n * 0.25)]!;
+    const q75 = sorted[Math.floor(n * 0.75)]!;
     
     return { min, max, mean, median, stdDev, q25, q75 };
   }
@@ -319,7 +323,7 @@ export class EquationAnalyzer {
     const threshold = stats.stdDev * 5; // Large jump = 5 std deviations
     
     for (let i = 1; i < values.length; i++) {
-      const diff = Math.abs(values[i] - values[i - 1]);
+      const diff = Math.abs(values[i]! - values[i - 1]!);
       if (diff > threshold && diff > 10) {  // Also require absolute threshold
         return true;
       }
@@ -396,8 +400,8 @@ export class EquationAnalyzer {
     // Use the middle 80% of the data (10th to 90th percentile)
     const sorted = [...coordValues].sort((a, b) => a - b);
     const n = sorted.length;
-    const p10 = sorted[Math.floor(n * 0.1)];
-    const p90 = sorted[Math.floor(n * 0.9)];
+    const p10 = sorted[Math.floor(n * 0.1)]!;
+    const p90 = sorted[Math.floor(n * 0.9)]!;
     
     // Add some padding
     const range = p90 - p10;

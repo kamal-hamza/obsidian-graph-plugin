@@ -5,7 +5,6 @@ import { Renderer2D } from './rendering/renderer-2d';
 import { Renderer3D } from './rendering/renderer-3d';
 import { EquationAnalyzer } from './utils/equation-analyzer';
 import type { GraphConfig, MathEngineModule, Point, InterestingPoint, GraphResult } from './types';
-import { DEFAULT_GRAPH_CONFIG } from './types';
 
 export default class MathGraphPlugin extends Plugin {
 	private wasmModule: MathEngineModule | null = null;
@@ -327,9 +326,9 @@ export default class MathGraphPlugin extends Plugin {
 		// Call WASM calculate2D
 		const wasmResult = this.wasmModule.calculate2D(
 			config.equation,
-			config.xMin ?? DEFAULT_GRAPH_CONFIG.xMin!,
-			config.xMax ?? DEFAULT_GRAPH_CONFIG.xMax!,
-			config.resolution ?? DEFAULT_GRAPH_CONFIG.resolution!
+			config.xMin ?? -10,
+			config.xMax ?? 10,
+			config.resolution ?? 400
 		);
 
 		// Immediately convert Embind vectors to plain JavaScript arrays
@@ -374,8 +373,8 @@ export default class MathGraphPlugin extends Plugin {
 		// Create renderer and render
 		const renderer = new Renderer2D(container);
 		renderer.render(result, {
-			width: config.width ?? DEFAULT_GRAPH_CONFIG.width!,
-			height: config.height ?? DEFAULT_GRAPH_CONFIG.height!,
+			width: config.width ?? 700,
+			height: config.height ?? 500,
 			showGrid: true,
 			showLegend: false,
 		});
@@ -392,11 +391,11 @@ export default class MathGraphPlugin extends Plugin {
 		// Call WASM calculate3D
 		const wasmResult = this.wasmModule.calculate3D(
 			config.equation,
-			config.xMin ?? DEFAULT_GRAPH_CONFIG.xMin!,
-			config.xMax ?? DEFAULT_GRAPH_CONFIG.xMax!,
-			config.yMin ?? DEFAULT_GRAPH_CONFIG.yMin!,
-			config.yMax ?? DEFAULT_GRAPH_CONFIG.yMax!,
-			config.resolution ?? DEFAULT_GRAPH_CONFIG.resolution!
+			config.xMin ?? -5,
+			config.xMax ?? 5,
+			config.yMin ?? -5,
+			config.yMax ?? 5,
+			config.resolution ?? 50
 		);
 
 		// Immediately convert Embind vectors to plain JavaScript arrays
@@ -431,12 +430,12 @@ export default class MathGraphPlugin extends Plugin {
 		// Create renderer and render
 		const renderer = new Renderer3D(container);
 		renderer.render(result, {
-			width: config.width ?? DEFAULT_GRAPH_CONFIG.width!,
-			height: config.height ?? DEFAULT_GRAPH_CONFIG.height!,
+			width: config.width ?? 700,
+			height: config.height ?? 700,
 			wireframe: false,
 			showPoints: true,
 			showAxes: true,
-		}, config.resolution ?? DEFAULT_GRAPH_CONFIG.resolution!);
+		}, config.resolution ?? 50);
 	}
 
 	/**
