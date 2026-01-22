@@ -1,0 +1,11 @@
+{
+	"id": "math-graph-plugin",
+	"name": "Math Graph Plugin",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "High-performance 2D and 3D mathematical graphing engine powered by WebAssembly",
+	"author": "Hamza Kamal",
+	"authorUrl": "https://kamal-hamza.github.io",
+	"fundingUrl": "https://obsidian.md/pricing",
+	"isDesktopOnly": true 
+}

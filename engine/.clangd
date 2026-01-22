@@ -1,0 +1,13 @@
+CompileFlags:
+  CompilationDatabase: engine/build
+  Compiler: /opt/homebrew/Cellar/emscripten/4.0.23/libexec/em++
+
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+  Suppress:
+    - drv_unknown_argument
+    - unused-command-line-argument
+
+Index:
+  Background: Build
