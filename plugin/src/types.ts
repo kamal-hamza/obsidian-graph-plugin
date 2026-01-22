@@ -68,12 +68,26 @@ export interface GraphConfig {
 }
 
 // Default configuration values
-export const DEFAULT_GRAPH_CONFIG: Partial<GraphConfig> = {
-    xMin: -10,
-    xMax: 10,
-    yMin: -10,
-    yMax: 10,
-    resolution: 100,
-    width: 600,
-    height: 400
+// Note: These are fallback values. The plugin now uses intelligent analysis
+// to determine optimal ranges automatically when not specified.
+export const DEFAULT_GRAPH_CONFIG = {
+    // 2D defaults
+    xMin2D: -10,
+    xMax2D: 10,
+    resolution2D: 400,
+    width2D: 700,
+    height2D: 500,
+    
+    // 3D defaults (more conservative to prevent memory issues)
+    xMin3D: -5,
+    xMax3D: 5,
+    yMin3D: -5,
+    yMax3D: 5,
+    resolution3D: 50,  // 50x50 = 2,500 points (safe for WASM)
+    width3D: 700,
+    height3D: 700,
+    
+    // Safety limits
+    maxResolution2D: 1000,
+    maxResolution3D: 100,  // 100x100 = 10,000 points (absolute max)
 };
