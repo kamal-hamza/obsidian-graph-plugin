@@ -36,21 +36,22 @@ export class Renderer2D {
         }
 
         // Extract data from result
-        // Note: result.path is an Embind vector, not a JS array
+        // Note: result.path is now a plain JS array
         const xData: number[] = [];
         const yData: number[] = [];
 
-        // Convert Embind vector to array
-        const pathSize = result.path.size();
-        for (let i = 0; i < pathSize; i++) {
-            const point = result.path.get(i);
+        // Extract x and y data from path
+        for (const point of result.path) {
             xData.push(point.x);
             yData.push(point.y);
         }
 
+        // Store points array separately to avoid capturing WASM reference in closure
+        const interestingPoints = result.points;
+
         // Debug: Log data ranges
         console.log('2D Renderer data:', {
-            pathSize,
+            pathSize: result.path.length,
             xDataLength: xData.length,
             yDataLength: yData.length,
             xRange: [Math.min(...xData), Math.max(...xData)],
@@ -141,7 +142,7 @@ export class Renderer2D {
                 draw: [
                     (u) => {
                         // Draw interesting points after the main series
-                        this.drawInterestingPoints(u, result.points);
+                        this.drawInterestingPoints(u, interestingPoints);
                     },
                 ],
             },
@@ -155,14 +156,12 @@ export class Renderer2D {
     /**
      * Draw interesting points (zeros, maxima, minima) on the chart
      */
-    private drawInterestingPoints(u: uPlot, points: any): void {
+    private drawInterestingPoints(u: uPlot, points: InterestingPoint[]): void {
         const colors = this.themeManager.getColors();
         const ctx = u.ctx;
 
-        // Convert Embind vector to array if needed
-        const pointsSize = points.size ? points.size() : points.length;
-        for (let i = 0; i < pointsSize; i++) {
-            const point = points.get ? points.get(i) : points[i];
+        // Iterate over points array
+        for (const point of points) {
             const cx = u.valToPos(point.location.x, 'x', true);
             const cy = u.valToPos(point.location.y, 'y', true);
 

@@ -28,9 +28,18 @@ export interface EmbindVector<T> {
     set(index: number, value: T): boolean;
 }
 
-export interface GraphResult {
+// Result type returned directly from WASM (uses Embind vectors)
+export interface WasmGraphResult {
     path: EmbindVector<Point>;
     points: EmbindVector<InterestingPoint>;
+    success: boolean;
+    errorMessage: string;
+}
+
+// Result type after conversion to plain JavaScript arrays
+export interface GraphResult {
+    path: Point[];
+    points: InterestingPoint[];
     success: boolean;
     errorMessage: string;
 }
@@ -40,9 +49,9 @@ export interface MathEngineModule {
     Point: new (x: number, y: number, z: number) => Point;
     ResultType: typeof ResultType;
     InterestingPoint: new () => InterestingPoint;
-    GraphResult: new () => GraphResult;
-    calculate2D(formula: string, xMin: number, xMax: number, resolution: number): GraphResult;
-    calculate3D(formula: string, xMin: number, xMax: number, yMin: number, yMax: number, resolution: number): GraphResult;
+    GraphResult: new () => WasmGraphResult;
+    calculate2D(formula: string, xMin: number, xMax: number, resolution: number): WasmGraphResult;
+    calculate3D(formula: string, xMin: number, xMax: number, yMin: number, yMax: number, resolution: number): WasmGraphResult;
 }
 
 // Graph configuration for code blocks

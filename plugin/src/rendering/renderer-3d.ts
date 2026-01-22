@@ -87,7 +87,7 @@ export class Renderer3D {
         this.createSurfaceMesh(result, resolution, options);
 
         // Add interesting points if requested
-        if (options.showPoints !== false && result.points.size() > 0) {
+        if (options.showPoints !== false && result.points.length > 0) {
             this.addInterestingPoints(result.points);
         }
 
@@ -155,12 +155,12 @@ export class Renderer3D {
         const colors_array: number[] = [];
 
         // Extract vertices from path
-        // Note: result.path is an Embind vector, not a JS array
-        const pathSize = result.path.size();
-        for (let i = 0; i < pathSize; i++) {
-            const point = result.path.get(i);
+        // Note: result.path is now a plain JS array
+        for (const point of result.path) {
             vertices.push(point.x, point.z, point.y); // Note: z and y swapped for Three.js convention
         }
+
+        const pathSize = result.path.length;
 
         // Generate indices for triangle mesh
         for (let i = 0; i < resolution - 1; i++) {
@@ -180,16 +180,14 @@ export class Renderer3D {
         let minZ = Infinity;
         let maxZ = -Infinity;
         
-        for (let i = 0; i < pathSize; i++) {
-            const point = result.path.get(i);
+        for (const point of result.path) {
             if (point.z < minZ) minZ = point.z;
             if (point.z > maxZ) maxZ = point.z;
         }
 
         const zRange = maxZ - minZ || 1;
 
-        for (let i = 0; i < pathSize; i++) {
-            const point = result.path.get(i);
+        for (const point of result.path) {
             const t = (point.z - minZ) / zRange;
             
             // Gradient from blue (low) to red (high)
@@ -222,16 +220,14 @@ export class Renderer3D {
     /**
      * Add interesting points as spheres in 3D space
      */
-    private addInterestingPoints(points: any): void {
+    private addInterestingPoints(points: InterestingPoint[]): void {
         if (!this.scene) return;
 
         this.pointsGroup = new THREE.Group();
         const colors = this.themeManager.getColors();
 
-        // Convert Embind vector to array if needed
-        const pointsSize = points.size ? points.size() : points.length;
-        for (let i = 0; i < pointsSize; i++) {
-            const point = points.get ? points.get(i) : points[i];
+        // Iterate over points array
+        for (const point of points) {
             let color: string;
             
             switch (point.type) {

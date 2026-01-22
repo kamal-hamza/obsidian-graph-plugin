@@ -3,7 +3,7 @@ import { WasmLoader } from './wasm/loader';
 import { ThemeManager } from './rendering/theme-manager';
 import { Renderer2D } from './rendering/renderer-2d';
 import { Renderer3D } from './rendering/renderer-3d';
-import type { GraphConfig, MathEngineModule } from './types';
+import type { GraphConfig, MathEngineModule, Point, InterestingPoint, GraphResult } from './types';
 import { DEFAULT_GRAPH_CONFIG } from './types';
 
 export default class MathGraphPlugin extends Plugin {
@@ -173,21 +173,50 @@ export default class MathGraphPlugin extends Plugin {
 		}
 
 		// Call WASM calculate2D
-		const result = this.wasmModule.calculate2D(
+		const wasmResult = this.wasmModule.calculate2D(
 			config.equation,
 			config.xMin ?? DEFAULT_GRAPH_CONFIG.xMin!,
 			config.xMax ?? DEFAULT_GRAPH_CONFIG.xMax!,
 			config.resolution ?? DEFAULT_GRAPH_CONFIG.resolution!
 		);
 
+		// Immediately convert Embind vectors to plain JavaScript arrays
+		// This prevents memory issues from the WASM module cleaning up
+		const pathSize = wasmResult.path.size();
+		const pointsSize = wasmResult.points.size();
+		
+		const path: Point[] = [];
+		for (let i = 0; i < pathSize; i++) {
+			const p = wasmResult.path.get(i);
+			path.push({ x: p.x, y: p.y, z: p.z });
+		}
+		
+		const points: InterestingPoint[] = [];
+		for (let i = 0; i < pointsSize; i++) {
+			const p = wasmResult.points.get(i);
+			points.push({
+				location: { x: p.location.x, y: p.location.y, z: p.location.z },
+				type: p.type,
+				label: p.label
+			});
+		}
+
+		// Create a plain JavaScript result object
+		const result: GraphResult = {
+			path: path as any, // Cast to satisfy type system
+			points: points as any,
+			success: wasmResult.success,
+			errorMessage: wasmResult.errorMessage
+		};
+
 		// Debug: Log result details
 		console.log('WASM 2D Result:', {
 			success: result.success,
 			errorMessage: result.errorMessage,
-			pathSize: result.path.size(),
-			pointsSize: result.points.size(),
-			firstPoint: result.path.size() > 0 ? result.path.get(0) : null,
-			lastPoint: result.path.size() > 0 ? result.path.get(result.path.size() - 1) : null
+			pathSize: path.length,
+			pointsSize: points.length,
+			firstPoint: path.length > 0 ? path[0] : null,
+			lastPoint: path.length > 0 ? path[path.length - 1] : null
 		});
 
 		// Create renderer and render
@@ -209,7 +238,7 @@ export default class MathGraphPlugin extends Plugin {
 		}
 
 		// Call WASM calculate3D
-		const result = this.wasmModule.calculate3D(
+		const wasmResult = this.wasmModule.calculate3D(
 			config.equation,
 			config.xMin ?? DEFAULT_GRAPH_CONFIG.xMin!,
 			config.xMax ?? DEFAULT_GRAPH_CONFIG.xMax!,
@@ -217,6 +246,35 @@ export default class MathGraphPlugin extends Plugin {
 			config.yMax ?? DEFAULT_GRAPH_CONFIG.yMax!,
 			config.resolution ?? DEFAULT_GRAPH_CONFIG.resolution!
 		);
+
+		// Immediately convert Embind vectors to plain JavaScript arrays
+		// This prevents memory issues from the WASM module cleaning up
+		const pathSize = wasmResult.path.size();
+		const pointsSize = wasmResult.points.size();
+		
+		const path: Point[] = [];
+		for (let i = 0; i < pathSize; i++) {
+			const p = wasmResult.path.get(i);
+			path.push({ x: p.x, y: p.y, z: p.z });
+		}
+		
+		const points: InterestingPoint[] = [];
+		for (let i = 0; i < pointsSize; i++) {
+			const p = wasmResult.points.get(i);
+			points.push({
+				location: { x: p.location.x, y: p.location.y, z: p.location.z },
+				type: p.type,
+				label: p.label
+			});
+		}
+
+		// Create a plain JavaScript result object
+		const result: GraphResult = {
+			path: path as any, // Cast to satisfy type system
+			points: points as any,
+			success: wasmResult.success,
+			errorMessage: wasmResult.errorMessage
+		};
 
 		// Create renderer and render
 		const renderer = new Renderer3D(container);
