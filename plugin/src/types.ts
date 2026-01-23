@@ -1,17 +1,5 @@
 // TypeScript types matching the C++ structs from engine.hpp
 
-// Three.js CSS2D types for axis labels
-export interface CSS2DObject {
-    element: HTMLElement;
-    position: { x: number; y: number; z: number };
-}
-
-export interface CSS2DRenderer {
-    domElement: HTMLElement;
-    setSize(width: number, height: number): void;
-    render(scene: any, camera: any): void;
-}
-
 export interface Point {
     x: number;
     y: number;
