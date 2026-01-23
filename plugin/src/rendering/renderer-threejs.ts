@@ -1077,10 +1077,12 @@ export class RendererThreeJS {
         // Clear existing labels
         while (this.axisLabelsGroup.children.length > 0) {
             const child = this.axisLabelsGroup.children[0];
-            if ((child as any).element) {
-                ((child as any).element as HTMLElement).remove();
+            if (child) {
+                if ((child as any).element) {
+                    ((child as any).element as HTMLElement).remove();
+                }
+                this.axisLabelsGroup.remove(child);
             }
-            this.axisLabelsGroup.remove(child);
         }
         
         const colors = this.themeManager.getObsidianColors();
@@ -1491,10 +1493,12 @@ export class RendererThreeJS {
         if (this.axisLabelsGroup) {
             while (this.axisLabelsGroup.children.length > 0) {
                 const child = this.axisLabelsGroup.children[0];
-                if ((child as any).element) {
-                    ((child as any).element as HTMLElement).remove();
+                if (child) {
+                    if ((child as any).element) {
+                        ((child as any).element as HTMLElement).remove();
+                    }
+                    this.axisLabelsGroup.remove(child);
                 }
-                this.axisLabelsGroup.remove(child);
             }
             this.scene!.remove(this.axisLabelsGroup);
             this.axisLabelsGroup = null;
