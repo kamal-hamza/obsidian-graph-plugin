@@ -3,7 +3,7 @@
 
 import * as Plotly from 'plotly.js-dist-min';
 import type { GraphResult, InterestingPoint, ResultType, MathEngineModule } from '../types';
-import { ThemeManager } from './theme-manager';
+import { ThemeManager, type ThemeColors } from './theme-manager';
 
 export interface RendererPlotlyOptions {
     width: number;
@@ -79,7 +79,8 @@ export class RendererPlotly {
     private render2D(result: GraphResult, options: RendererPlotlyOptions): void {
         if (!this.plotDiv) return;
 
-        const colors = this.themeManager.getObsidianColors();
+        const colors = this.themeManager.getColors();
+        const obsidianColors = this.themeManager.getObsidianColors();
         
         // Extract x and y coordinates from path
         const xData: number[] = [];
@@ -97,11 +98,19 @@ export class RendererPlotly {
             type: 'scattergl', // WebGL acceleration for performance
             mode: 'lines',
             line: {
-                color: colors.accent,
-                width: 2,
+                color: colors.interactiveAccent,
+                width: 2.5,
             },
             name: this.equation || 'f(x)',
             hoverinfo: 'x+y',
+            hoverlabel: {
+                bgcolor: colors.backgroundSecondary,
+                bordercolor: colors.interactiveAccent,
+                font: {
+                    color: colors.textNormal,
+                    family: 'var(--font-interface)',
+                },
+            },
         };
 
         const traces: Partial<Plotly.PlotData>[] = [mainTrace];
@@ -116,37 +125,64 @@ export class RendererPlotly {
         const layout: Partial<Plotly.Layout> = {
             width: options.width,
             height: options.height,
-            paper_bgcolor: colors.background,
-            plot_bgcolor: colors.background,
+            paper_bgcolor: colors.backgroundPrimary,
+            plot_bgcolor: colors.backgroundPrimary,
             font: {
-                color: colors.text,
+                color: colors.textNormal,
                 family: 'var(--font-interface)',
+                size: 12,
             },
             xaxis: {
-                title: 'x',
-                gridcolor: colors.grid,
-                zerolinecolor: colors.accent,
+                title: {
+                    text: 'x',
+                    font: {
+                        color: colors.textMuted,
+                        family: 'var(--font-interface)',
+                    },
+                },
+                gridcolor: colors.backgroundModifier,
+                gridwidth: 1,
+                zerolinecolor: colors.interactiveAccent,
+                zerolinewidth: 1.5,
                 showgrid: options.showGrid !== false,
                 showline: options.showAxes !== false,
-                linecolor: colors.grid,
-                color: colors.text,
+                linecolor: colors.borderColor,
+                linewidth: 1,
+                color: colors.textNormal,
+                tickfont: {
+                    color: colors.textMuted,
+                },
             },
             yaxis: {
-                title: 'y',
-                gridcolor: colors.grid,
-                zerolinecolor: colors.accent,
+                title: {
+                    text: 'y',
+                    font: {
+                        color: colors.textMuted,
+                        family: 'var(--font-interface)',
+                    },
+                },
+                gridcolor: colors.backgroundModifier,
+                gridwidth: 1,
+                zerolinecolor: colors.interactiveAccent,
+                zerolinewidth: 1.5,
                 showgrid: options.showGrid !== false,
                 showline: options.showAxes !== false,
-                linecolor: colors.grid,
-                color: colors.text,
+                linecolor: colors.borderColor,
+                linewidth: 1,
+                color: colors.textNormal,
+                tickfont: {
+                    color: colors.textMuted,
+                },
             },
             hovermode: 'closest',
             showlegend: result.points.length > 0,
             legend: {
-                bgcolor: colors.background,
-                bordercolor: colors.grid,
+                bgcolor: colors.backgroundSecondary,
+                bordercolor: colors.borderColor,
+                borderwidth: 1,
                 font: {
-                    color: colors.text,
+                    color: colors.textNormal,
+                    family: 'var(--font-interface)',
                 },
             },
             margin: {
@@ -183,7 +219,7 @@ export class RendererPlotly {
     private render3D(result: GraphResult, options: RendererPlotlyOptions): void {
         if (!this.plotDiv) return;
 
-        const colors = this.themeManager.getObsidianColors();
+        const colors = this.themeManager.getColors();
         
         // Convert path array to 2D grid for surface plot
         const gridData = this.pathToGrid(result.path);
@@ -201,13 +237,34 @@ export class RendererPlotly {
             type: 'surface',
             colorscale: 'Viridis',
             showscale: true,
+            colorbar: {
+                title: {
+                    text: 'z',
+                    font: {
+                        color: colors.textNormal,
+                        family: 'var(--font-interface)',
+                    },
+                },
+                tickfont: {
+                    color: colors.textMuted,
+                },
+                outlinecolor: colors.borderColor,
+                bgcolor: colors.backgroundSecondary,
+            },
             name: this.equation || 'f(x, y)',
             hovertemplate: 'x: %{x}<br>y: %{y}<br>z: %{z}<extra></extra>',
+            hoverlabel: {
+                bgcolor: colors.backgroundSecondary,
+                bordercolor: colors.interactiveAccent,
+                font: {
+                    color: colors.textNormal,
+                },
+            },
             contours: {
                 x: {
                     show: true,
                     usecolormap: true,
-                    highlightcolor: colors.accent,
+                    highlightcolor: colors.interactiveAccent,
                     project: { z: true }
                 }
             } as any,
@@ -225,42 +282,72 @@ export class RendererPlotly {
         const layout: Partial<Plotly.Layout> = {
             width: options.width,
             height: options.height,
-            paper_bgcolor: colors.background,
+            paper_bgcolor: colors.backgroundPrimary,
             font: {
-                color: colors.text,
+                color: colors.textNormal,
                 family: 'var(--font-interface)',
+                size: 12,
             },
             scene: {
                 xaxis: {
-                    title: 'x',
-                    gridcolor: colors.grid,
+                    title: {
+                        text: 'x',
+                        font: {
+                            color: colors.textMuted,
+                        },
+                    },
+                    gridcolor: colors.backgroundModifier,
+                    gridwidth: 1,
                     showgrid: options.showGrid !== false,
-                    backgroundcolor: colors.background,
-                    color: colors.text,
+                    backgroundcolor: colors.backgroundPrimary,
+                    color: colors.textNormal,
+                    tickfont: {
+                        color: colors.textMuted,
+                    },
                 },
                 yaxis: {
-                    title: 'y',
-                    gridcolor: colors.grid,
+                    title: {
+                        text: 'y',
+                        font: {
+                            color: colors.textMuted,
+                        },
+                    },
+                    gridcolor: colors.backgroundModifier,
+                    gridwidth: 1,
                     showgrid: options.showGrid !== false,
-                    backgroundcolor: colors.background,
-                    color: colors.text,
+                    backgroundcolor: colors.backgroundPrimary,
+                    color: colors.textNormal,
+                    tickfont: {
+                        color: colors.textMuted,
+                    },
                 },
                 zaxis: {
-                    title: 'z',
-                    gridcolor: colors.grid,
+                    title: {
+                        text: 'z',
+                        font: {
+                            color: colors.textMuted,
+                        },
+                    },
+                    gridcolor: colors.backgroundModifier,
+                    gridwidth: 1,
                     showgrid: options.showGrid !== false,
-                    backgroundcolor: colors.background,
-                    color: colors.text,
+                    backgroundcolor: colors.backgroundPrimary,
+                    color: colors.textNormal,
+                    tickfont: {
+                        color: colors.textMuted,
+                    },
                 },
-                bgcolor: colors.background,
+                bgcolor: colors.backgroundPrimary,
             },
             hovermode: 'closest',
             showlegend: result.points.length > 0,
             legend: {
-                bgcolor: colors.background,
-                bordercolor: colors.grid,
+                bgcolor: colors.backgroundSecondary,
+                bordercolor: colors.borderColor,
+                borderwidth: 1,
                 font: {
-                    color: colors.text,
+                    color: colors.textNormal,
+                    family: 'var(--font-interface)',
                 },
             },
             margin: {
@@ -344,7 +431,7 @@ export class RendererPlotly {
      */
     private createInterestingPointTraces2D(
         points: InterestingPoint[],
-        colors: any
+        colors: ThemeColors
     ): Partial<Plotly.PlotData>[] {
         const traces: Partial<Plotly.PlotData>[] = [];
 
@@ -443,7 +530,7 @@ export class RendererPlotly {
      */
     private createInterestingPointTraces3D(
         points: InterestingPoint[],
-        colors: any
+        colors: ThemeColors
     ): Partial<Plotly.PlotData> {
         const colorMap: { [key: number]: string } = {
             0: '#3b82f6', // zeros - blue
@@ -682,67 +769,133 @@ export class RendererPlotly {
 
         // Refresh theme colors
         this.themeManager.refreshColors();
-        const colors = this.themeManager.getObsidianColors();
+        const colors = this.themeManager.getColors();
 
         // Build update object based on mode
         const update: Partial<Plotly.Layout> = {
-            paper_bgcolor: colors.background,
-            plot_bgcolor: colors.background,
+            paper_bgcolor: colors.backgroundPrimary,
+            plot_bgcolor: colors.backgroundPrimary,
             font: {
-                color: colors.text,
+                color: colors.textNormal,
+                family: 'var(--font-interface)',
+                size: 12,
             },
         };
 
         if (this.mode === '2d') {
             update.xaxis = {
-                gridcolor: colors.grid,
-                zerolinecolor: colors.accent,
-                linecolor: colors.grid,
-                color: colors.text,
+                title: {
+                    font: {
+                        color: colors.textMuted,
+                    },
+                },
+                gridcolor: colors.backgroundModifier,
+                gridwidth: 1,
+                zerolinecolor: colors.interactiveAccent,
+                zerolinewidth: 1.5,
+                linecolor: colors.borderColor,
+                linewidth: 1,
+                color: colors.textNormal,
+                tickfont: {
+                    color: colors.textMuted,
+                },
             } as any;
             update.yaxis = {
-                gridcolor: colors.grid,
-                zerolinecolor: colors.accent,
-                linecolor: colors.grid,
-                color: colors.text,
+                title: {
+                    font: {
+                        color: colors.textMuted,
+                    },
+                },
+                gridcolor: colors.backgroundModifier,
+                gridwidth: 1,
+                zerolinecolor: colors.interactiveAccent,
+                zerolinewidth: 1.5,
+                linecolor: colors.borderColor,
+                linewidth: 1,
+                color: colors.textNormal,
+                tickfont: {
+                    color: colors.textMuted,
+                },
             } as any;
         } else {
             update.scene = {
                 xaxis: {
-                    gridcolor: colors.grid,
-                    backgroundcolor: colors.background,
-                    color: colors.text,
+                    title: {
+                        font: {
+                            color: colors.textMuted,
+                        },
+                    },
+                    gridcolor: colors.backgroundModifier,
+                    gridwidth: 1,
+                    backgroundcolor: colors.backgroundPrimary,
+                    color: colors.textNormal,
+                    tickfont: {
+                        color: colors.textMuted,
+                    },
                 } as any,
                 yaxis: {
-                    gridcolor: colors.grid,
-                    backgroundcolor: colors.background,
-                    color: colors.text,
+                    title: {
+                        font: {
+                            color: colors.textMuted,
+                        },
+                    },
+                    gridcolor: colors.backgroundModifier,
+                    gridwidth: 1,
+                    backgroundcolor: colors.backgroundPrimary,
+                    color: colors.textNormal,
+                    tickfont: {
+                        color: colors.textMuted,
+                    },
                 } as any,
                 zaxis: {
-                    gridcolor: colors.grid,
-                    backgroundcolor: colors.background,
-                    color: colors.text,
+                    title: {
+                        font: {
+                            color: colors.textMuted,
+                        },
+                    },
+                    gridcolor: colors.backgroundModifier,
+                    gridwidth: 1,
+                    backgroundcolor: colors.backgroundPrimary,
+                    color: colors.textNormal,
+                    tickfont: {
+                        color: colors.textMuted,
+                    },
                 } as any,
-                bgcolor: colors.background,
+                bgcolor: colors.backgroundPrimary,
             } as any;
         }
 
         // Update legend colors
         update.legend = {
-            bgcolor: colors.background,
-            bordercolor: colors.grid,
+            bgcolor: colors.backgroundSecondary,
+            bordercolor: colors.borderColor,
+            borderwidth: 1,
             font: {
-                color: colors.text,
+                color: colors.textNormal,
+                family: 'var(--font-interface)',
             },
         } as any;
 
         // Apply the update
         Plotly.relayout(this.plotDiv, update);
 
-        // Update main trace color
-        Plotly.restyle(this.plotDiv, {
-            'line.color': colors.accent,
-        }, [0]);
+        // Update main trace colors (line and hover)
+        const traceUpdate: any = {
+            'line.color': colors.interactiveAccent,
+            'hoverlabel.bgcolor': colors.backgroundSecondary,
+            'hoverlabel.bordercolor': colors.interactiveAccent,
+            'hoverlabel.font.color': colors.textNormal,
+        };
+
+        // For 3D mode, also update colorbar
+        if (this.mode === '3d') {
+            traceUpdate['colorbar.title.font.color'] = colors.textNormal;
+            traceUpdate['colorbar.tickfont.color'] = colors.textMuted;
+            traceUpdate['colorbar.outlinecolor'] = colors.borderColor;
+            traceUpdate['colorbar.bgcolor'] = colors.backgroundSecondary;
+        }
+
+        Plotly.restyle(this.plotDiv, traceUpdate, [0]);
     }
 
     /**
