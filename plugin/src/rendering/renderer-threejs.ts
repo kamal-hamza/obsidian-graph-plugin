@@ -573,6 +573,9 @@ export class RendererThreeJS {
 
         this.isRecalculating = true;
 
+        // CRITICAL: Track wasmResult for manual memory cleanup
+        let wasmResult: any = null;
+
         try {
             const camera = this.camera as THREE.OrthographicCamera;
             const xMin = camera.left;
@@ -580,7 +583,8 @@ export class RendererThreeJS {
 
             // Calculate current range and required resolution
             const range = xMax - xMin;
-            const resolution = Math.min(800, Math.max(200, Math.floor(500 / Math.log10(range + 1))));
+            // Cap resolution to prevent excessive memory allocation
+            const resolution = Math.min(2000, Math.max(200, Math.floor(500 / Math.log10(range + 1))));
             
             // Recalculate if:
             // 1. Zoomed OUT past our data (range > maxRange), OR
@@ -616,26 +620,47 @@ export class RendererThreeJS {
             // Update zoom display
             this.updateZoomDisplay(zoomPercent);
 
-            // Recalculate
-            const wasmResult = this.wasmModule.calculate2D(this.equation, adjustedXMin, adjustedXMax, resolution);
+            // Recalculate - WASM allocates C++ objects that must be freed
+            wasmResult = this.wasmModule.calculate2D(this.equation, adjustedXMin, adjustedXMax, resolution);
 
             if (!wasmResult.success) {
-                this.isRecalculating = false;
                 return;
             }
 
-            // Convert to typed array - extract data immediately
-            const pointCount = wasmResult.path.size();
-            const positions = new Float32Array(pointCount * 3);
-
-            for (let i = 0; i < pointCount; i++) {
-                const point = wasmResult.path.get(i);
-                positions[i * 3] = point.x;
-                positions[i * 3 + 1] = point.y;
-                positions[i * 3 + 2] = 0;
+            // OPTIMIZATION: Use zero-copy data transfer if available
+            let positions: Float32Array;
+            
+            if (this.wasmModule.getPathData2D) {
+                // Fast path: Direct typed array view into WASM memory
+                const rawData = this.wasmModule.getPathData2D(wasmResult);
+                if (rawData) {
+                    // Copy the data immediately (WASM memory view is invalidated after .delete())
+                    positions = new Float32Array(rawData);
+                    console.log('2D Zero-copy transfer:', positions.length / 3, 'points');
+                } else {
+                    // Fallback to traditional method
+                    const pointCount = wasmResult.path.size();
+                    positions = new Float32Array(pointCount * 3);
+                    for (let i = 0; i < pointCount; i++) {
+                        const point = wasmResult.path.get(i);
+                        positions[i * 3] = point.x;
+                        positions[i * 3 + 1] = point.y;
+                        positions[i * 3 + 2] = 0;
+                    }
+                }
+            } else {
+                // Traditional method: iterate through Embind vector
+                const pointCount = wasmResult.path.size();
+                positions = new Float32Array(pointCount * 3);
+                for (let i = 0; i < pointCount; i++) {
+                    const point = wasmResult.path.get(i);
+                    positions[i * 3] = point.x;
+                    positions[i * 3 + 1] = point.y;
+                    positions[i * 3 + 2] = 0;
+                }
             }
 
-            // Don't hold reference to wasmResult - let it be garbage collected
+            const pointCount = positions.length / 3;
 
             // Update geometry - dispose old and create new if vertex count changed
             if (this.mainLine && this.mainLine.geometry) {
@@ -662,6 +687,11 @@ export class RendererThreeJS {
         } catch (error) {
             console.error('2D Dynamic recalculation error:', error);
         } finally {
+            // CRITICAL: Manually free WASM memory
+            // Embind objects are C++ wrappers and MUST be deleted to prevent memory leaks
+            if (wasmResult && typeof wasmResult.delete === 'function') {
+                wasmResult.delete();
+            }
             this.isRecalculating = false;
         }
     }
@@ -676,6 +706,9 @@ export class RendererThreeJS {
 
         this.isRecalculating = true;
 
+        // CRITICAL: Track wasmResult for manual memory cleanup
+        let wasmResult: any = null;
+
         try {
             const camera = this.camera as THREE.PerspectiveCamera;
             const target = this.controls.target;
@@ -683,6 +716,7 @@ export class RendererThreeJS {
 
             // Calculate visible range and required resolution
             const baseRange = distance * 0.5;
+            // Cap resolution to prevent excessive memory allocation (3D is resolution^2 points!)
             const resolution = Math.min(100, Math.max(30, Math.floor(80 / Math.log10(baseRange + 1))));
             
             // Recalculate if:
@@ -721,8 +755,8 @@ export class RendererThreeJS {
             // Update zoom display
             this.updateZoomDisplay(zoomPercent);
 
-            // Recalculate
-            const wasmResult = this.wasmModule.calculate3D(
+            // Recalculate - WASM allocates C++ objects that must be freed
+            wasmResult = this.wasmModule.calculate3D(
                 this.equation, 
                 xMin, xMax, 
                 yMin, yMax, 
@@ -730,37 +764,81 @@ export class RendererThreeJS {
             );
 
             if (!wasmResult.success) {
-                this.isRecalculating = false;
                 return;
             }
 
-            // Convert to typed arrays - extract data immediately
-            const totalPoints = wasmResult.path.size();
-            const positions = new Float32Array(totalPoints * 3);
-            const colorArray = new Float32Array(totalPoints * 3);
-
+            // OPTIMIZATION: Use zero-copy data transfer if available
+            let positions: Float32Array;
             let minZ = Infinity;
             let maxZ = -Infinity;
-
-            // Extract data in single pass to minimize WASM calls
-            for (let i = 0; i < totalPoints; i++) {
-                const point = wasmResult.path.get(i);
-                const px = point.x;
-                const py = point.y;
-                const pz = point.z;
+            
+            if (this.wasmModule.getPathData3D) {
+                // Fast path: Direct typed array view into WASM memory
+                const rawData = this.wasmModule.getPathData3D(wasmResult);
+                if (rawData) {
+                    // Copy the data immediately (WASM memory view is invalidated after .delete())
+                    const tempData = new Float64Array(rawData);
+                    const totalPoints = tempData.length / 3;
+                    positions = new Float32Array(totalPoints * 3);
+                    
+                    // Convert from double to float and swap Y/Z for Three.js coordinate system
+                    for (let i = 0; i < totalPoints; i++) {
+                        const px = tempData[i * 3]!;
+                        const py = tempData[i * 3 + 1]!;
+                        const pz = tempData[i * 3 + 2]!;
+                        
+                        positions[i * 3] = px;
+                        positions[i * 3 + 1] = pz; // Y is up in Three.js
+                        positions[i * 3 + 2] = py;
+                        
+                        if (pz < minZ) minZ = pz;
+                        if (pz > maxZ) maxZ = pz;
+                    }
+                    
+                    console.log('3D Zero-copy transfer:', totalPoints, 'points');
+                } else {
+                    // Fallback to traditional method
+                    const totalPoints = wasmResult.path.size();
+                    positions = new Float32Array(totalPoints * 3);
+                    
+                    for (let i = 0; i < totalPoints; i++) {
+                        const point = wasmResult.path.get(i);
+                        const px = point.x;
+                        const py = point.y;
+                        const pz = point.z;
+                        
+                        positions[i * 3] = px;
+                        positions[i * 3 + 1] = pz;
+                        positions[i * 3 + 2] = py;
+                        
+                        if (pz < minZ) minZ = pz;
+                        if (pz > maxZ) maxZ = pz;
+                    }
+                }
+            } else {
+                // Traditional method: iterate through Embind vector
+                const totalPoints = wasmResult.path.size();
+                positions = new Float32Array(totalPoints * 3);
                 
-                positions[i * 3] = px;
-                positions[i * 3 + 1] = pz; // Y is up in Three.js
-                positions[i * 3 + 2] = py;
-                
-                if (pz < minZ) minZ = pz;
-                if (pz > maxZ) maxZ = pz;
+                for (let i = 0; i < totalPoints; i++) {
+                    const point = wasmResult.path.get(i);
+                    const px = point.x;
+                    const py = point.y;
+                    const pz = point.z;
+                    
+                    positions[i * 3] = px;
+                    positions[i * 3 + 1] = pz; // Y is up in Three.js
+                    positions[i * 3 + 2] = py;
+                    
+                    if (pz < minZ) minZ = pz;
+                    if (pz > maxZ) maxZ = pz;
+                }
             }
 
-            // Clear reference to wasmResult immediately after extraction
-            // This allows WASM to garbage collect the Embind objects
+            const totalPoints = positions.length / 3;
 
             // Update colors
+            const colorArray = new Float32Array(totalPoints * 3);
             const range = maxZ - minZ || 1;
             for (let i = 0; i < totalPoints; i++) {
                 const z = positions[i * 3 + 1]!;
@@ -822,6 +900,11 @@ export class RendererThreeJS {
         } catch (error) {
             console.error('3D Dynamic recalculation error:', error);
         } finally {
+            // CRITICAL: Manually free WASM memory
+            // Embind objects are C++ wrappers and MUST be deleted to prevent memory leaks
+            if (wasmResult && typeof wasmResult.delete === 'function') {
+                wasmResult.delete();
+            }
             this.isRecalculating = false;
         }
     }

@@ -1,4 +1,5 @@
 #include <emscripten/bind.h>
+#include <emscripten/val.h>
 #include "engine.hpp"
 #include "sampler.h"
 #include "analyzer.h"
@@ -63,4 +64,34 @@ EMSCRIPTEN_BINDINGS(math_graph_module) {
             return res3d;
         })
     );
+
+    // Zero-copy data extraction functions for high performance
+    // These return TypedArray views directly into WASM memory, avoiding bridge overhead
+    
+    // Get 2D path data as Float64Array (x, y pairs, z is always 0)
+    function("getPathData2D", optional_override([](const GraphResult& res) {
+        if (!res.success || res.path.empty()) {
+            return val::undefined();
+        }
+        // Return Float64Array view of raw vector memory
+        // Each Point has 3 doubles (x, y, z), but for 2D we return all 3
+        const size_t byte_length = res.path.size() * sizeof(Point);
+        return val(typed_memory_view(
+            res.path.size() * 3,
+            reinterpret_cast<const double*>(res.path.data())
+        ));
+    }));
+    
+    // Get 3D path data as Float64Array (x, y, z triplets)
+    function("getPathData3D", optional_override([](const GraphResult& res) {
+        if (!res.success || res.path.empty()) {
+            return val::undefined();
+        }
+        // Return Float64Array view of raw vector memory
+        const size_t byte_length = res.path.size() * sizeof(Point);
+        return val(typed_memory_view(
+            res.path.size() * 3,
+            reinterpret_cast<const double*>(res.path.data())
+        ));
+    }));
 }

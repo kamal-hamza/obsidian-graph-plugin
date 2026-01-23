@@ -29,11 +29,15 @@ export interface EmbindVector<T> {
 }
 
 // Result type returned directly from WASM (uses Embind vectors)
+// IMPORTANT: Objects returned from WASM via Embind are wrappers for C++ memory
+// and MUST be manually deleted by calling .delete() to prevent memory leaks
 export interface WasmGraphResult {
     path: EmbindVector<Point>;
     points: EmbindVector<InterestingPoint>;
     success: boolean;
     errorMessage: string;
+    // Manual memory management - MUST be called to free C++ memory
+    delete(): void;
 }
 
 // Result type after conversion to plain JavaScript arrays
@@ -52,6 +56,11 @@ export interface MathEngineModule {
     GraphResult: new () => WasmGraphResult;
     calculate2D(formula: string, xMin: number, xMax: number, resolution: number): WasmGraphResult;
     calculate3D(formula: string, xMin: number, xMax: number, yMin: number, yMax: number, resolution: number): WasmGraphResult;
+    
+    // Zero-copy data extraction functions (high performance)
+    // These return Float64Array views directly into WASM memory
+    getPathData2D(result: WasmGraphResult): Float64Array | undefined;
+    getPathData3D(result: WasmGraphResult): Float64Array | undefined;
 }
 
 // Graph configuration for code blocks
