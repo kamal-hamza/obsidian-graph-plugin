@@ -5,11 +5,56 @@ A high-performance mathematical graphing plugin for Obsidian that renders 2D and
 ## Features
 
 - ⚡ **Blazing Fast**: C++ computation backend compiled to WebAssembly for near-native performance
-- 📊 **2D Graphing**: Beautiful 2D function plots using uPlot with canvas rendering
+- 📊 **2D Graphing**: Professional Desmos-style 2D function plots with infinite axes
 - 🎨 **3D Visualization**: Interactive 3D surface plots powered by Three.js
 - 🎯 **Smart Analysis**: Automatically detects and marks zeros, maxima, and minima
-- 🌓 **Theme Aware**: Seamlessly integrates with Obsidian's light and dark themes
-- 🔍 **Interactive**: Pan, zoom, and rotate graphs for detailed exploration
+- 🌓 **Dynamic Theme Integration**: Real-time color updates when switching between light/dark themes
+- 🔍 **Interactive**: Pan, zoom, and rotate with live grid and label updates
+- 📏 **Professional Axis Labels**: HTML-based labels with adaptive tick intervals
+- 🌐 **Infinite Dynamic Grid**: Dual-grid system (major/minor) that scales with zoom level
+- 🎯 **Coordinate Crosshair**: Mouse-following crosshair for precise coordinate tracking (2D)
+- 📐 **Scale Legend**: Live unit-to-pixel ratio display
+
+## Desmos-Style Features
+
+### Dynamic Obsidian Theme Integration
+
+The graphs now seamlessly integrate with Obsidian's theme system:
+
+- **Automatic Sync**: Graphs update immediately when you toggle Light/Dark mode or change accent colors
+- **Native Colors**: Uses Obsidian's CSS variables (`--background-primary`, `--text-normal`, `--interactive-accent`)
+- **Real-time Updates**: All visual elements (background, grid, axes, labels) adapt instantly
+
+### Professional Axis Labels (CSS2DRenderer)
+
+Crisp, theme-aware labels using HTML overlay technology:
+
+- **Adaptive Ticks**: Labels appear at logical intervals (1, 2, 5 pattern) based on zoom level
+- **Smart Formatting**: Decimal precision adjusts automatically (e.g., 0.1, 0.01, 0.001)
+- **Non-Obstructive**: Labels stay anchored to axes even when panning
+- **Performance**: HTML rendering is faster and crisper than WebGL text
+
+### Infinite Dynamic Grid
+
+A dual-grid system that provides visual context at any zoom level:
+
+- **Major Grid**: Prominent lines for primary intervals (integers or powers of 10)
+- **Minor Grid**: Fainter subdivision lines for intermediate values
+- **Zoom-Responsive**: Grid automatically recalculates and redraws when zoom changes by >10%
+- **Visual Continuity**: Smooth opacity and scale transitions
+
+### Enhanced Interactions
+
+#### 2D Mode
+- **Coordinate Crosshair**: Vertical and horizontal lines follow your mouse to show exact (x, y) position
+- **Infinite Axes**: X and Y axes extend infinitely (10,000 units) in both directions
+- **Scale Legend**: Bottom-right corner displays current "1 unit ≈ Npx" ratio
+- **Pan & Zoom**: Left-click drag to pan, scroll to zoom
+
+#### 3D Mode
+- **Rotate**: Click and drag to rotate the view
+- **Zoom**: Scroll to zoom in/out
+- **Pan**: Right-click and drag (or Shift+drag)
 
 ## Installation
 

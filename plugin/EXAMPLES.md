@@ -2,6 +2,33 @@
 
 This document contains examples of how to use the Math Graph Plugin in Obsidian.
 
+## New Desmos-Style Features
+
+The plugin now includes professional graphing features:
+
+### Dynamic Theme Integration
+- **Automatic Sync**: Graphs update immediately when you toggle Light/Dark mode
+- **Native Colors**: Uses Obsidian's `--background-primary`, `--text-normal`, and `--interactive-accent` variables
+- All colors adapt to your theme in real-time
+
+### Professional Axis Labels
+- **Adaptive Ticks**: Labels appear at logical intervals based on zoom level
+- **HTML Overlay**: Crisp, theme-aware labels using CSS2DRenderer
+- **Smart Formatting**: Decimal precision adjusts automatically with zoom
+
+### Infinite Dynamic Grid
+- **Dual-Grid System**: Major grid for integers, minor grid for subdivisions
+- **Zoom-Responsive**: Grid scale updates automatically as you zoom in/out
+- **Visual Continuity**: Grids fade and adapt smoothly based on view range
+
+### Enhanced Interactions
+- **Coordinate Crosshair**: Vertical and horizontal lines follow your mouse (2D mode)
+- **Scale Legend**: Shows current unit-to-pixel ratio in bottom-right corner
+- **Infinite Axes**: X and Y axes extend infinitely in 2D mode
+
+### Try It Yourself
+Pan with left-click drag, zoom with scroll wheel, and watch the grid and labels adapt in real-time!
+
 ## 2D Graph Examples
 
 ### Example 1: Simple Sine Wave
