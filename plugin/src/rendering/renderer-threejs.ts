@@ -43,6 +43,9 @@ export class RendererThreeJS {
     private mainLine: THREE.Line | null = null;
     private mainPoints: THREE.Points | null = null;
     private axesHelper: THREE.AxesHelper | null = null;
+    private xAxisLine: THREE.Line | null = null;
+    private yAxisLine: THREE.Line | null = null;
+    private zAxisLine: THREE.Line | null = null;
     private gridHelper: THREE.GridHelper | null = null;
     private majorGrid: THREE.GridHelper | null = null;
     private minorGrid: THREE.GridHelper | null = null;
@@ -78,6 +81,11 @@ export class RendererThreeJS {
     private zoomDisplay: HTMLElement | null = null;
     private raycaster: THREE.Raycaster = new THREE.Raycaster();
     private mouse: THREE.Vector2 = new THREE.Vector2();
+    
+    // Throttle for grid/label updates
+    private lastGridUpdateZoom: number = 0;
+    private lastLabelUpdateZoom: number = 0;
+    private gridUpdateThreshold: number = 0.1; // Update when zoom changes by 10%
 
     constructor(container: HTMLElement, wasmModule?: MathEngineModule) {
         this.container = container;
@@ -208,11 +216,17 @@ export class RendererThreeJS {
 
         // Add axes helper if requested
         if (options.showAxes !== false) {
-            this.axesHelper = new THREE.AxesHelper(10);
-            const axesMaterial = (this.axesHelper.material as THREE.LineBasicMaterial);
-            axesMaterial.transparent = true;
-            axesMaterial.opacity = 0.6;
-            this.scene.add(this.axesHelper);
+            if (this.mode === '2d') {
+                // Create infinite axes for 2D mode
+                this.createInfiniteAxes();
+            } else {
+                // Use standard AxesHelper for 3D
+                this.axesHelper = new THREE.AxesHelper(10);
+                const axesMaterial = (this.axesHelper.material as THREE.LineBasicMaterial);
+                axesMaterial.transparent = true;
+                axesMaterial.opacity = 0.6;
+                this.scene.add(this.axesHelper);
+            }
         }
 
         // Add grid helper if requested
@@ -259,6 +273,13 @@ export class RendererThreeJS {
         if (this.wasmModule && this.equation) {
             this.controls.addEventListener('change', () => {
                 this.handleZoomPanDebounced();
+            });
+        }
+        
+        // Listen to controls change for immediate visual updates (grid, labels, axes)
+        if (this.mode === '2d') {
+            this.controls.addEventListener('change', () => {
+                this.updateVisualsThrottled();
             });
         }
     }
@@ -597,11 +618,6 @@ export class RendererThreeJS {
      * Handle zoom/pan for dynamic recalculation (Desmos-style for both 2D and 3D)
      */
     private async handleZoomPan(): Promise<void> {
-        // Update dual grid for 2D mode
-        if (this.mode === '2d') {
-            this.updateDualGrid();
-            this.updateAxisLabels();
-        }
         if (this.isRecalculating || !this.wasmModule || !this.equation || !this.camera) {
             return;
         }
@@ -962,6 +978,50 @@ export class RendererThreeJS {
 
 
     /**
+     * Create infinite axes for 2D mode
+     */
+    private createInfiniteAxes(): void {
+        const colors = this.themeManager.getObsidianColors();
+        const length = 10000; // Very large number to simulate infinity
+        
+        // X-axis (red)
+        const xGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(-length, 0, 0),
+            new THREE.Vector3(length, 0, 0)
+        ]);
+        const xMaterial = new THREE.LineBasicMaterial({
+            color: 0xff0000,
+            transparent: true,
+            opacity: 0.8,
+            linewidth: 2
+        });
+        this.xAxisLine = new THREE.Line(xGeometry, xMaterial);
+        this.scene!.add(this.xAxisLine);
+        
+        // Y-axis (green)
+        const yGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, -length, 0),
+            new THREE.Vector3(0, length, 0)
+        ]);
+        const yMaterial = new THREE.LineBasicMaterial({
+            color: 0x00ff00,
+            transparent: true,
+            opacity: 0.8,
+            linewidth: 2
+        });
+        this.yAxisLine = new THREE.Line(yGeometry, yMaterial);
+        this.scene!.add(this.yAxisLine);
+    }
+    
+    /**
+     * Update infinite axes (no-op since they're already infinite)
+     */
+    private updateInfiniteAxes(): void {
+        // Axes are already infinite, no updates needed
+        // This method exists for consistency with updateDualGrid and updateAxisLabels
+    }
+    
+    /**
      * Create zoom percentage display
      */
     /**
@@ -987,6 +1047,28 @@ export class RendererThreeJS {
         (this.minorGrid.material as THREE.LineBasicMaterial).transparent = true;
         (this.minorGrid.material as THREE.LineBasicMaterial).opacity = 0.15;
         this.scene!.add(this.minorGrid);
+    }
+    
+    /**
+     * Throttled update for visuals (grid, labels, axes)
+     */
+    private updateVisualsThrottled(): void {
+        if (!this.camera || this.mode !== '2d') return;
+        
+        const orthoCamera = this.camera as THREE.OrthographicCamera;
+        const currentZoom = orthoCamera.right - orthoCamera.left;
+        
+        // Calculate zoom change percentage
+        const zoomChange = this.lastGridUpdateZoom === 0 ? 1 : 
+            Math.abs(currentZoom - this.lastGridUpdateZoom) / this.lastGridUpdateZoom;
+        
+        // Only update if zoom changed significantly
+        if (zoomChange > this.gridUpdateThreshold) {
+            this.updateDualGrid();
+            this.updateAxisLabels();
+            this.lastGridUpdateZoom = currentZoom;
+            this.lastLabelUpdateZoom = currentZoom;
+        }
     }
     
     /**
@@ -1096,8 +1178,21 @@ export class RendererThreeJS {
             
             // Calculate appropriate tick interval
             const xRange = xMax - xMin;
-            const logRange = Math.floor(Math.log10(xRange));
-            const tickInterval = Math.pow(10, logRange) / 2;
+            const yRange = yMax - yMin;
+            const avgRange = (xRange + yRange) / 2;
+            const logRange = Math.floor(Math.log10(avgRange));
+            const baseInterval = Math.pow(10, logRange);
+            
+            // Choose a nice tick interval (1, 2, 5 pattern)
+            let tickInterval = baseInterval;
+            const targetTicks = 8; // Aim for about 8 ticks
+            const currentTicks = xRange / tickInterval;
+            
+            if (currentTicks < targetTicks / 2) {
+                tickInterval = baseInterval / 2;
+            } else if (currentTicks > targetTicks * 2) {
+                tickInterval = baseInterval * 2;
+            }
             
             // Create X-axis labels
             for (let x = Math.ceil(xMin / tickInterval) * tickInterval; x <= xMax; x += tickInterval) {
@@ -1105,13 +1200,17 @@ export class RendererThreeJS {
                 
                 const labelDiv = document.createElement('div');
                 labelDiv.style.color = colors.text;
-                labelDiv.style.fontSize = '11px';
+                labelDiv.style.fontSize = '10px';
                 labelDiv.style.fontFamily = 'var(--font-monospace)';
                 labelDiv.style.padding = '2px 4px';
                 labelDiv.style.backgroundColor = colors.background;
                 labelDiv.style.border = `1px solid ${colors.grid}`;
-                labelDiv.style.borderRadius = '3px';
-                labelDiv.textContent = x.toFixed(Math.max(0, -logRange));
+                labelDiv.style.borderRadius = '2px';
+                labelDiv.style.userSelect = 'none';
+                
+                // Format number appropriately
+                const decimals = Math.max(0, -Math.floor(Math.log10(Math.abs(tickInterval))));
+                labelDiv.textContent = x.toFixed(decimals);
                 
                 const label = new CSS2DObject(labelDiv);
                 label.position.set(x, 0, 0);
@@ -1124,13 +1223,17 @@ export class RendererThreeJS {
                 
                 const labelDiv = document.createElement('div');
                 labelDiv.style.color = colors.text;
-                labelDiv.style.fontSize = '11px';
+                labelDiv.style.fontSize = '10px';
                 labelDiv.style.fontFamily = 'var(--font-monospace)';
                 labelDiv.style.padding = '2px 4px';
                 labelDiv.style.backgroundColor = colors.background;
                 labelDiv.style.border = `1px solid ${colors.grid}`;
-                labelDiv.style.borderRadius = '3px';
-                labelDiv.textContent = y.toFixed(Math.max(0, -logRange));
+                labelDiv.style.borderRadius = '2px';
+                labelDiv.style.userSelect = 'none';
+                
+                // Format number appropriately
+                const decimals = Math.max(0, -Math.floor(Math.log10(Math.abs(tickInterval))));
+                labelDiv.textContent = y.toFixed(decimals);
                 
                 const label = new CSS2DObject(labelDiv);
                 label.position.set(0, y, 0);
@@ -1452,6 +1555,28 @@ export class RendererThreeJS {
         if (this.axesHelper) {
             this.scene!.remove(this.axesHelper);
             this.axesHelper = null;
+        }
+        
+        // Dispose of infinite axes
+        if (this.xAxisLine) {
+            this.scene!.remove(this.xAxisLine);
+            this.xAxisLine.geometry.dispose();
+            (this.xAxisLine.material as THREE.Material).dispose();
+            this.xAxisLine = null;
+        }
+        
+        if (this.yAxisLine) {
+            this.scene!.remove(this.yAxisLine);
+            this.yAxisLine.geometry.dispose();
+            (this.yAxisLine.material as THREE.Material).dispose();
+            this.yAxisLine = null;
+        }
+        
+        if (this.zAxisLine) {
+            this.scene!.remove(this.zAxisLine);
+            this.zAxisLine.geometry.dispose();
+            (this.zAxisLine.material as THREE.Material).dispose();
+            this.zAxisLine = null;
         }
 
         if (this.gridHelper) {
