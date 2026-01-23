@@ -1,7 +1,7 @@
 // Renderer2D - Uses Plotly.js for interactive 2D visualization with hover tooltips
 
 import Plotly from 'plotly.js-dist-min';
-import type { GraphResult, InterestingPoint, ResultType } from '../types';
+import type { GraphResult, InterestingPoint, ResultType, MathEngineModule } from '../types';
 import { ThemeManager } from './theme-manager';
 
 export interface Renderer2DOptions {
@@ -16,16 +16,27 @@ export class Renderer2D {
     private themeManager: ThemeManager;
     private container: HTMLElement;
     private plotDiv: HTMLElement | null = null;
+    private wasmModule: MathEngineModule | null = null;
+    private equation: string = '';
+    private currentOptions: Renderer2DOptions | null = null;
+    private isRecalculating: boolean = false;
 
-    constructor(container: HTMLElement) {
+    constructor(container: HTMLElement, wasmModule?: MathEngineModule) {
         this.container = container;
         this.themeManager = ThemeManager.getInstance();
+        this.wasmModule = wasmModule || null;
     }
 
     /**
      * Render a 2D graph from the WASM GraphResult
+     * Now supports dynamic recalculation on zoom/pan (Desmos-style)
      */
-    public render(result: GraphResult, options: Renderer2DOptions): void {
+    public render(result: GraphResult, options: Renderer2DOptions, equation?: string): void {
+        // Store equation for dynamic recalculation
+        if (equation) {
+            this.equation = equation;
+        }
+        this.currentOptions = options;
         // Clear any existing chart
         this.destroy();
 
@@ -306,6 +317,145 @@ export class Renderer2D {
 
         // Create the plot
         Plotly.newPlot(this.plotDiv, traces, layout, config);
+
+        // Add dynamic recalculation on zoom/pan (Desmos-style)
+        if (this.wasmModule && this.equation) {
+            (this.plotDiv as any).on('plotly_relayout', (eventData: any) => {
+                this.handleZoomPan(eventData);
+            });
+        }
+    }
+
+    /**
+     * Handle zoom/pan events and dynamically recalculate function
+     * This makes the graph behave like Desmos - infinite zooming with recalculation
+     */
+    private async handleZoomPan(eventData: any): Promise<void> {
+        // Avoid recursive recalculation
+        if (this.isRecalculating || !this.wasmModule || !this.equation || !this.plotDiv || !this.currentOptions) {
+            return;
+        }
+
+        // Check if this is a zoom/pan event (has xaxis.range or autosize)
+        const hasXRange = eventData['xaxis.range[0]'] !== undefined || eventData['xaxis.range'] !== undefined;
+        const hasAutosize = eventData.autosize !== undefined;
+        
+        if (!hasXRange && !hasAutosize) {
+            return;
+        }
+
+        this.isRecalculating = true;
+
+        try {
+            // Get current axis ranges from the plot
+            const layout = (this.plotDiv as any).layout;
+            let xMin: number, xMax: number;
+
+            if (eventData['xaxis.range[0]'] !== undefined) {
+                xMin = eventData['xaxis.range[0]'];
+                xMax = eventData['xaxis.range[1]'];
+            } else if (eventData['xaxis.range'] !== undefined) {
+                xMin = eventData['xaxis.range'][0];
+                xMax = eventData['xaxis.range'][1];
+            } else if (layout.xaxis && layout.xaxis.range) {
+                xMin = layout.xaxis.range[0];
+                xMax = layout.xaxis.range[1];
+            } else {
+                this.isRecalculating = false;
+                return;
+            }
+
+            // Expand range slightly to ensure smooth edges
+            const range = xMax - xMin;
+            const padding = range * 0.1;
+            xMin -= padding;
+            xMax += padding;
+
+            // Calculate appropriate resolution based on zoom level
+            // More zoomed in = higher resolution for smoother curves
+            const resolution = Math.min(800, Math.max(200, Math.floor(500 / Math.log10(range + 1))));
+
+            console.log('Dynamic recalculation:', { xMin, xMax, resolution, range });
+
+            // Call WASM to recalculate with new range
+            const wasmResult = this.wasmModule.calculate2D(
+                this.equation,
+                xMin,
+                xMax,
+                resolution
+            );
+
+            if (!wasmResult.success) {
+                console.warn('Recalculation failed:', wasmResult.errorMessage);
+                this.isRecalculating = false;
+                return;
+            }
+
+            // Convert to plain arrays
+            const xData: number[] = [];
+            const yData: number[] = [];
+            const pathSize = wasmResult.path.size();
+            
+            for (let i = 0; i < pathSize; i++) {
+                const point = wasmResult.path.get(i);
+                xData.push(point.x);
+                yData.push(point.y);
+            }
+
+            const points: any[] = [];
+            const pointsSize = wasmResult.points.size();
+            for (let i = 0; i < pointsSize; i++) {
+                const p = wasmResult.points.get(i);
+                points.push({
+                    location: { x: p.location.x, y: p.location.y, z: p.location.z },
+                    type: p.type,
+                    label: p.label
+                });
+            }
+
+            // Update the main trace
+            const updateData: any = {
+                x: [xData],
+                y: [yData],
+            };
+
+            // Group interesting points by type
+            const zeros = points.filter(p => p.type === 0);
+            const maxima = points.filter(p => p.type === 2);
+            const minima = points.filter(p => p.type === 3);
+            const intercepts = points.filter(p => p.type === 1);
+
+            // Add interesting points data
+            let traceIndex = 1;
+            if (zeros.length > 0) {
+                updateData.x[traceIndex] = zeros.map(p => p.location.x);
+                updateData.y[traceIndex] = zeros.map(p => p.location.y);
+                traceIndex++;
+            }
+            if (maxima.length > 0) {
+                updateData.x[traceIndex] = maxima.map(p => p.location.x);
+                updateData.y[traceIndex] = maxima.map(p => p.location.y);
+                traceIndex++;
+            }
+            if (minima.length > 0) {
+                updateData.x[traceIndex] = minima.map(p => p.location.x);
+                updateData.y[traceIndex] = minima.map(p => p.location.y);
+                traceIndex++;
+            }
+            if (intercepts.length > 0) {
+                updateData.x[traceIndex] = intercepts.map(p => p.location.x);
+                updateData.y[traceIndex] = intercepts.map(p => p.location.y);
+                traceIndex++;
+            }
+
+            // Update plot with new data (use Plotly.restyle to avoid triggering another relayout)
+            await Plotly.restyle(this.plotDiv, updateData);
+
+        } catch (error) {
+            console.error('Error during dynamic recalculation:', error);
+        } finally {
+            this.isRecalculating = false;
+        }
     }
 
     /**

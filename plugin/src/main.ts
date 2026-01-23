@@ -370,14 +370,14 @@ export default class MathGraphPlugin extends Plugin {
 			lastPoint: path.length > 0 ? path[path.length - 1] : null
 		});
 
-		// Create renderer and render
-		const renderer = new Renderer2D(container);
+		// Create renderer with WASM module for dynamic recalculation
+		const renderer = new Renderer2D(container, this.wasmModule);
 		renderer.render(result, {
 			width: config.width ?? 700,
 			height: config.height ?? 500,
 			showGrid: true,
 			showLegend: false,
-		});
+		}, config.equation);
 	}
 
 	/**
