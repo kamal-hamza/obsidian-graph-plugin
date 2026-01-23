@@ -1,6 +1,6 @@
-// Renderer2D - Uses uPlot for ultra-fast 2D canvas-based rendering
+// Renderer2D - Uses Plotly.js for interactive 2D visualization with hover tooltips
 
-import uPlot from 'uplot';
+import Plotly from 'plotly.js-dist-min';
 import type { GraphResult, InterestingPoint, ResultType } from '../types';
 import { ThemeManager } from './theme-manager';
 
@@ -15,7 +15,7 @@ export interface Renderer2DOptions {
 export class Renderer2D {
     private themeManager: ThemeManager;
     private container: HTMLElement;
-    private chart: uPlot | null = null;
+    private plotDiv: HTMLElement | null = null;
 
     constructor(container: HTMLElement) {
         this.container = container;
@@ -36,7 +36,6 @@ export class Renderer2D {
         }
 
         // Extract data from result
-        // Note: result.path is now a plain JS array
         const xData: number[] = [];
         const yData: number[] = [];
 
@@ -45,9 +44,6 @@ export class Renderer2D {
             xData.push(point.x);
             yData.push(point.y);
         }
-
-        // Store points array separately to avoid capturing WASM reference in closure
-        const interestingPoints = result.points;
 
         // Debug: Log data ranges
         console.log('2D Renderer data:', {
@@ -63,149 +59,253 @@ export class Renderer2D {
         // Get theme colors
         const colors = this.themeManager.getColors();
 
-        // Calculate padding dynamically based on size
-        // Larger graphs get more padding for labels
-        const horizontalPadding = Math.max(40, Math.floor(options.width * 0.08));
-        const verticalPadding = Math.max(40, Math.floor(options.height * 0.1));
-        const axisLabelSize = Math.max(50, Math.floor(options.width * 0.08));
+        // Create plot container
+        this.plotDiv = this.container.createDiv({ cls: 'math-graph-2d-plotly' });
+        this.plotDiv.style.width = `${options.width}px`;
+        this.plotDiv.style.height = `${options.height}px`;
 
-        // Set container padding dynamically
-        this.container.style.padding = `${verticalPadding}px ${horizontalPadding}px`;
-        this.container.style.boxSizing = 'border-box';
+        // Main function trace
+        const mainTrace: Partial<Plotly.PlotData> = {
+            x: xData,
+            y: yData,
+            type: 'scatter',
+            mode: 'lines',
+            name: 'f(x)',
+            line: {
+                color: colors.interactiveAccent,
+                width: 2,
+            },
+            hovertemplate: 'x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>',
+        };
 
-        // Adjust dimensions for padding
-        const actualWidth = options.width - (horizontalPadding * 2);
-        const actualHeight = options.height - (verticalPadding * 2);
+        const traces: Partial<Plotly.PlotData>[] = [mainTrace];
 
-        // Create uPlot configuration
-        const opts: uPlot.Options = {
-            width: actualWidth,
-            height: actualHeight,
-            title: options.title,
-            class: 'math-graph-2d',
-            cursor: {
-                drag: {
-                    x: true,
-                    y: true,
+        // Group interesting points by type
+        const zeros: InterestingPoint[] = [];
+        const intercepts: InterestingPoint[] = [];
+        const maxima: InterestingPoint[] = [];
+        const minima: InterestingPoint[] = [];
+
+        for (const point of result.points) {
+            switch (point.type) {
+                case 0: // ZERO
+                    zeros.push(point);
+                    break;
+                case 1: // INTERCEPT
+                    intercepts.push(point);
+                    break;
+                case 2: // MAXIMA
+                    maxima.push(point);
+                    break;
+                case 3: // MINIMA
+                    minima.push(point);
+                    break;
+            }
+        }
+
+        // Add traces for interesting points with labels and tooltips
+        if (zeros.length > 0) {
+            traces.push({
+                x: zeros.map(p => p.location.x),
+                y: zeros.map(p => p.location.y),
+                type: 'scatter',
+                mode: 'markers+text' as any,
+                name: 'Zeros',
+                text: zeros.map(p => p.label || ''),
+                textposition: 'top center',
+                textfont: {
+                    size: 10,
+                    color: colors.textNormal,
+                },
+                marker: {
+                    size: 10,
+                    color: colors.interactiveAccent,
+                    symbol: 'circle',
+                    line: {
+                        color: colors.interactiveAccent,
+                        width: 2,
+                    },
+                },
+                hovertemplate: '<b>Zero</b><br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>',
+            });
+        }
+
+        if (maxima.length > 0) {
+            traces.push({
+                x: maxima.map(p => p.location.x),
+                y: maxima.map(p => p.location.y),
+                type: 'scatter',
+                mode: 'markers+text' as any,
+                name: 'Local Max',
+                text: maxima.map(p => p.label || ''),
+                textposition: 'top center',
+                textfont: {
+                    size: 10,
+                    color: colors.textNormal,
+                },
+                marker: {
+                    size: 10,
+                    color: '#10b981',
+                    symbol: 'triangle-up',
+                    line: {
+                        color: '#10b981',
+                        width: 2,
+                    },
+                },
+                hovertemplate: '<b>Local Maximum</b><br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>',
+            });
+        }
+
+        if (minima.length > 0) {
+            traces.push({
+                x: minima.map(p => p.location.x),
+                y: minima.map(p => p.location.y),
+                type: 'scatter',
+                mode: 'markers+text' as any,
+                name: 'Local Min',
+                text: minima.map(p => p.label || ''),
+                textposition: 'bottom center',
+                textfont: {
+                    size: 10,
+                    color: colors.textNormal,
+                },
+                marker: {
+                    size: 10,
+                    color: '#ef4444',
+                    symbol: 'triangle-down',
+                    line: {
+                        color: '#ef4444',
+                        width: 2,
+                    },
+                },
+                hovertemplate: '<b>Local Minimum</b><br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>',
+            });
+        }
+
+        if (intercepts.length > 0) {
+            traces.push({
+                x: intercepts.map(p => p.location.x),
+                y: intercepts.map(p => p.location.y),
+                type: 'scatter',
+                mode: 'markers+text' as any,
+                name: 'Intercepts',
+                text: intercepts.map(p => p.label || ''),
+                textposition: 'top center',
+                textfont: {
+                    size: 10,
+                    color: colors.textNormal,
+                },
+                marker: {
+                    size: 8,
+                    color: colors.textMuted,
+                    symbol: 'diamond',
+                    line: {
+                        color: colors.textMuted,
+                        width: 2,
+                    },
+                },
+                hovertemplate: '<b>Intercept</b><br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>',
+            });
+        }
+
+        // Layout configuration
+        const layout: Partial<Plotly.Layout> = {
+            title: options.title ? {
+                text: options.title,
+                font: {
+                    family: 'var(--font-interface)',
+                    size: 14,
+                    color: colors.textNormal,
+                },
+            } : undefined,
+            autosize: false,
+            width: options.width,
+            height: options.height,
+            margin: {
+                l: 60,
+                r: 40,
+                t: options.title ? 50 : 20,
+                b: 50,
+            },
+            paper_bgcolor: colors.backgroundPrimary,
+            plot_bgcolor: colors.backgroundSecondary,
+            xaxis: {
+                title: {
+                    text: 'x',
+                    font: {
+                        family: 'var(--font-interface)',
+                        size: 12,
+                        color: colors.textMuted,
+                    },
+                },
+                gridcolor: colors.backgroundModifier,
+                gridwidth: 1,
+                showgrid: options.showGrid !== false,
+                zeroline: true,
+                zerolinecolor: colors.textFaint,
+                zerolinewidth: 2,
+                color: colors.textMuted,
+            },
+            yaxis: {
+                title: {
+                    text: 'f(x)',
+                    font: {
+                        family: 'var(--font-interface)',
+                        size: 12,
+                        color: colors.textMuted,
+                    },
+                },
+                gridcolor: colors.backgroundModifier,
+                gridwidth: 1,
+                showgrid: options.showGrid !== false,
+                zeroline: true,
+                zerolinecolor: colors.textFaint,
+                zerolinewidth: 2,
+                color: colors.textMuted,
+            },
+            showlegend: options.showLegend !== false && (zeros.length > 0 || maxima.length > 0 || minima.length > 0 || intercepts.length > 0),
+            legend: {
+                x: 1,
+                xanchor: 'right',
+                y: 1,
+                bgcolor: this.themeManager.hexToRGBA(colors.backgroundSecondary, 0.9),
+                bordercolor: colors.borderColor,
+                borderwidth: 1,
+                font: {
+                    family: 'var(--font-interface)',
+                    size: 11,
+                    color: colors.textNormal,
                 },
             },
-            scales: {
-                x: {
-                    auto: true,
+            hovermode: 'closest',
+            hoverlabel: {
+                bgcolor: colors.backgroundSecondary,
+                bordercolor: colors.borderColor,
+                font: {
+                    family: 'var(--font-monospace)',
+                    size: 12,
+                    color: colors.textNormal,
                 },
-                y: {
-                    auto: true,
-                },
-            },
-            axes: [
-                {
-                    stroke: colors.textMuted,
-                    grid: {
-                        show: options.showGrid !== false,
-                        stroke: colors.backgroundModifier,
-                        width: 1,
-                    },
-                    ticks: {
-                        stroke: colors.textFaint,
-                        width: 1,
-                    },
-                    size: axisLabelSize,
-                },
-                {
-                    stroke: colors.textMuted,
-                    grid: {
-                        show: options.showGrid !== false,
-                        stroke: colors.backgroundModifier,
-                        width: 1,
-                    },
-                    ticks: {
-                        stroke: colors.textFaint,
-                        width: 1,
-                    },
-                    size: axisLabelSize,
-                },
-            ],
-            series: [
-                {
-                    label: 'x',
-                },
-                {
-                    label: 'f(x)',
-                    stroke: colors.interactiveAccent,
-                    width: 2,
-                    points: {
-                        show: false,
-                    },
-                },
-            ],
-            hooks: {
-                draw: [
-                    (u) => {
-                        // Draw interesting points after the main series
-                        this.drawInterestingPoints(u, interestingPoints);
-                    },
-                ],
             },
         };
 
-        // Create the chart
-        const data: uPlot.AlignedData = [xData, yData];
-        this.chart = new uPlot(opts, data, this.container);
-    }
+        // Configuration for interactivity
+        const config: Partial<Plotly.Config> = {
+            responsive: true,
+            displayModeBar: true,
+            displaylogo: false,
+            modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+            toImageButtonOptions: {
+                format: 'png',
+                filename: 'graph',
+                height: options.height,
+                width: options.width,
+                scale: 2,
+            },
+        };
 
-    /**
-     * Draw interesting points (zeros, maxima, minima) on the chart
-     */
-    private drawInterestingPoints(u: uPlot, points: InterestingPoint[]): void {
-        const colors = this.themeManager.getColors();
-        const ctx = u.ctx;
-
-        // Iterate over points array
-        for (const point of points) {
-            const cx = u.valToPos(point.location.x, 'x', true);
-            const cy = u.valToPos(point.location.y, 'y', true);
-
-            if (cx == null || cy == null) continue;
-
-            // Draw point
-            ctx.save();
-            ctx.beginPath();
-
-            // Set color based on type
-            switch (point.type) {
-                case 0: // ZERO
-                    ctx.fillStyle = this.themeManager.hexToRGBA(colors.interactiveAccent, 0.8);
-                    ctx.strokeStyle = colors.interactiveAccent;
-                    break;
-                case 1: // INTERCEPT
-                    ctx.fillStyle = this.themeManager.hexToRGBA(colors.textNormal, 0.6);
-                    ctx.strokeStyle = colors.textNormal;
-                    break;
-                case 2: // MAXIMA
-                    ctx.fillStyle = this.themeManager.hexToRGBA('#10b981', 0.8);
-                    ctx.strokeStyle = '#10b981';
-                    break;
-                case 3: // MINIMA
-                    ctx.fillStyle = this.themeManager.hexToRGBA('#ef4444', 0.8);
-                    ctx.strokeStyle = '#ef4444';
-                    break;
-            }
-
-            ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
-            // Draw label if present
-            if (point.label) {
-                ctx.fillStyle = colors.textNormal;
-                ctx.font = '12px var(--font-interface)';
-                ctx.textAlign = 'center';
-                ctx.fillText(point.label, cx, cy - 12);
-            }
-
-            ctx.restore();
-        }
+        // Create the plot
+        Plotly.newPlot(this.plotDiv, traces, layout, config);
     }
 
     /**
@@ -243,9 +343,9 @@ export class Renderer2D {
      * Destroy the chart and clean up
      */
     public destroy(): void {
-        if (this.chart) {
-            this.chart.destroy();
-            this.chart = null;
+        if (this.plotDiv) {
+            Plotly.purge(this.plotDiv);
+            this.plotDiv = null;
         }
         this.container.empty();
     }
@@ -254,19 +354,11 @@ export class Renderer2D {
      * Update chart size
      */
     public resize(width: number, height: number): void {
-        if (this.chart) {
-            // Recalculate padding dynamically
-            const horizontalPadding = Math.max(40, Math.floor(width * 0.08));
-            const verticalPadding = Math.max(40, Math.floor(height * 0.1));
-            
-            // Update container padding
-            this.container.style.padding = `${verticalPadding}px ${horizontalPadding}px`;
-            
-            // Adjust dimensions for padding
-            const actualWidth = width - (horizontalPadding * 2);
-            const actualHeight = height - (verticalPadding * 2);
-            
-            this.chart.setSize({ width: actualWidth, height: actualHeight });
+        if (this.plotDiv) {
+            Plotly.relayout(this.plotDiv, {
+                width: width,
+                height: height,
+            });
         }
     }
 }
