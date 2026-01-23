@@ -1,4 +1,4 @@
-import { BufferGeometry, BufferAttribute, Mesh, Float32BufferAttribute } from 'three';
+import { BufferGeometry, BufferAttribute, Mesh } from 'three';
 import { GraphMaterial } from '../materials/GraphMaterial';
 
 export class GraphGeometry {
@@ -60,15 +60,48 @@ export class GraphGeometry {
                 const c = (i + 1) * size + j;
                 const d = (i + 1) * size + (j + 1);
 
-                // Two triangles: a-b-d and a-d-c? 
-                // Need to check winding order for normals (CCW vs CW)
-                // Standard is usually CCW (Counter Clockwise)
-
-                // Triangle 1: a -> b -> d
+                // Triangle 1: a -> b -> d (CCW)
                 indices.push(a, b, d);
 
-                // Triangle 2: a -> d -> c
-                indices.push(a, d, c); // or c, d, b? No, let's try this.
+                // Triangle 2: d -> c -> a (CCW) is correct for forming a quad with a-b-d?
+                // Quad: a-b-d-c? No, vertices are:
+                // a (i,j)      b (i,j+1)
+                // c (i+1,j)    d (i+1,j+1)
+                //
+                // Standard Quad split (0,1,2) (2,1,3) usually.
+                // a=0, b=1, c=2, d=3 ? No layout is row-major?
+                // b is (j+1) which is next col, so right.
+                // c is next row, so down.
+                //
+                // a -- b
+                // |  / |
+                // | /  |
+                // c -- d
+                //
+                // Tri 1: a, c, b (CCW for front face pointing "out") or a, b, c?
+                // Standard OpenGL/WebGL CCW:
+                // a->c->b (top-left, bot-left, top-right)
+                // b->c->d (top-right, bot-left, bot-right)
+                //
+                // Wait, user's input code was:
+                // indices.push(a, b, d);
+                // indices.push(d, c, a);
+                //
+                // Let's re-verify user's indexing:
+                // a(i,j), b(i, j+1), c(i+1, j), d(i+1, j+1)
+                // a (TL), b (TR), c (BL), d (BR) (Assuming Y goes down? No, grid i,j usually X,Y)
+                // If i=x, j=y:
+                // a(0,0), b(0,1), c(1,0), d(1,1)
+                //
+                // If Z is up, looking down:
+                // a(0,0)  b(0,1)
+                // c(1,0)  d(1,1)
+                // (Assuming X right, Y up in grid index space)
+                // No, usually:
+                // i (row) -> y?
+                // Let's stick to the user's specific logic suggestion: "Triangle 1: a, b, d. Triangle 2: d, c, a"
+                indices.push(a, b, d);
+                indices.push(d, c, a);
             }
         }
 

@@ -45,8 +45,6 @@
             color: white;
         }
     </style>
-    <!-- Load WASM JS Glue -->
-    <script src="/wasm/math_engine.js"></script>
 </head>
 
 <body>
@@ -70,30 +68,46 @@
         import { GraphRenderer } from './src/index.ts';
         import { DEFAULT_THEME } from './src/config/ThemeConfig.ts';
 
-        const renderer = new GraphRenderer();
-        renderer.mount(document.getElementById('app'));
+        // Initialize renderer - WASM will be loaded automatically
+        (async () => {
+            try {
+                // Create renderer (no factory needed - will auto-load from /wasm/)
+                const renderer = new GraphRenderer();
+                renderer.mount(document.getElementById('app'));
 
-        // Initial Render
-        // Initial Render
-        // @ts-ignore
-        renderer.computer.ready.then(() => {
-            renderer.setExpression("sin(sqrt(x^2 + y^2))");
-        });
+                // Wait for WASM to be fully initialized
+                await renderer.isReady();
+                console.log('✅ Renderer ready!');
+                
+                // Initial render with default expression
+                renderer.setExpression("sin(sqrt(x^2 + y^2))");
 
-        document.getElementById('renderBtn').addEventListener('click', () => {
-            const val = document.getElementById('formula').value;
-            renderer.setExpression(val);
-        });
+                // Setup UI event handlers
+                document.getElementById('renderBtn').addEventListener('click', () => {
+                    const val = document.getElementById('formula').value;
+                    renderer.setExpression(val);
+                });
 
-        const clipMin = document.getElementById('clipMin');
-        const clipMax = document.getElementById('clipMax');
+                const clipMin = document.getElementById('clipMin');
+                const clipMax = document.getElementById('clipMax');
 
-        function updateClip() {
-            renderer.setZClipping(parseFloat(clipMin.value), parseFloat(clipMax.value));
-        }
+                function updateClip() {
+                    renderer.setZClipping(parseFloat(clipMin.value), parseFloat(clipMax.value));
+                }
 
-        clipMin.addEventListener('input', updateClip);
-        clipMax.addEventListener('input', updateClip);
+                clipMin.addEventListener('input', updateClip);
+                clipMax.addEventListener('input', updateClip);
+            } catch (error) {
+                console.error('❌ Failed to initialize renderer:', error);
+                document.getElementById('app').innerHTML = `
+                    <div style="color: red; padding: 20px;">
+                        <h3>Error Loading Graph Renderer</h3>
+                        <p>${error.message}</p>
+                        <p>Make sure the WASM module is built: <code>bash scripts/build-engine.sh</code></p>
+                    </div>
+                `;
+            }
+        })();
 
     </script>
 </body>

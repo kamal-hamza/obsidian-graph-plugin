@@ -70,7 +70,7 @@ export class GraphMaterial extends MeshStandardMaterial {
             t = clamp(t, 0.0, 1.0);
             
             // Overwrite diffuse color
-            vec4 diffuseColor = vec4(mix(uColorStart, uColorEnd, t), opacity);
+            diffuseColor = vec4(mix(uColorStart, uColorEnd, t), opacity);
             `
       );
 
@@ -85,15 +85,18 @@ export class GraphMaterial extends MeshStandardMaterial {
   setColors(start: string, end: string) {
     this.userData.uniforms.uColorStart.value.set(start);
     this.userData.uniforms.uColorEnd.value.set(end);
+    this.needsUpdate = true;
   }
 
   setZRange(min: number, max: number) {
     this.userData.uniforms.uMinZ.value = min;
     this.userData.uniforms.uMaxZ.value = max;
+    this.needsUpdate = true;
   }
 
   setClipRange(min: number, max: number) {
     this.userData.uniforms.uClipMin.value = min;
     this.userData.uniforms.uClipMax.value = max;
+    this.needsUpdate = true;
   }
 }

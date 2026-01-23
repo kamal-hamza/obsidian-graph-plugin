@@ -3,10 +3,12 @@ set -e
 
 # Define paths
 ENGINE_DIR="../engine"
-OUTPUT_DIR="./public/wasm"
+OUTPUT_DIR_PUBLIC="./public/wasm"
+OUTPUT_DIR_SRC="./src/wasm"
 
-# Create output directory if it doesn't exist
-mkdir -p "$OUTPUT_DIR"
+# Create output directories if they don't exist
+mkdir -p "$OUTPUT_DIR_PUBLIC"
+mkdir -p "$OUTPUT_DIR_SRC"
 
 echo "Building Math Engine to WASM..."
 
@@ -34,6 +36,11 @@ emcc \
   -s MALLOC=emmalloc \
   -s ALLOW_TABLE_GROWTH=1 \
   -s STACK_SIZE=5MB \
-  -o "$OUTPUT_DIR/math_engine.js"
+  -o "$OUTPUT_DIR_PUBLIC/math_engine.js"
 
-echo "Build complete! Artifacts in $OUTPUT_DIR"
+echo "Copying to src directory for dev environment..."
+cp "$OUTPUT_DIR_PUBLIC/math_engine.js" "$OUTPUT_DIR_SRC/math_engine.js"
+
+echo "Build complete! Artifacts in:"
+echo "  - $OUTPUT_DIR_PUBLIC (for production plugin)"
+echo "  - $OUTPUT_DIR_SRC (for dev environment)"

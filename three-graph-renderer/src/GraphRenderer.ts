@@ -18,7 +18,7 @@ export class GraphRenderer {
     private axisSystem: AxisSystem;
     private gridSystem: GridSystem;
     private graphGeometry: GraphGeometry;
-    private computer: WasmComputer;
+    public computer: WasmComputer;
 
     private theme: ThemeConfig = DEFAULT_THEME;
     private resizeObserver: ResizeObserver;
@@ -26,7 +26,7 @@ export class GraphRenderer {
 
     private lights: { ambient: AmbientLight, directional: DirectionalLight };
 
-    constructor() {
+    constructor(wasmFactory?: any) {
         // 1. Core Three.js Setup
         this.scene = new Scene();
         this.scene.background = new Color(this.theme.backgroundColor);
@@ -62,12 +62,16 @@ export class GraphRenderer {
         this.graphGeometry = new GraphGeometry();
         this.scene.add(this.graphGeometry.getObject());
 
-        this.computer = new WasmComputer();
+        this.computer = new WasmComputer(wasmFactory);
 
         this.resizeObserver = new ResizeObserver(() => this.onResize());
 
         // Start Loop
         this.animate();
+    }
+
+    public isReady(): Promise<void> {
+        return this.computer.ready;
     }
 
     public mount(container: HTMLElement) {
