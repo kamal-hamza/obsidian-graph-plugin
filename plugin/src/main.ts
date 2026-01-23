@@ -20,9 +20,13 @@ export default class MathGraphPlugin extends Plugin {
 		// Setup theme listener to refresh when theme changes
 		this.themeManager.setupThemeListener(() => {
 			console.log('Theme changed, colors refreshed');
-			// Update all active renderers
+			// Update all active renderers (with safety check)
 			this.activeRenderers.forEach(renderer => {
-				renderer.updateTheme();
+				try {
+					renderer.updateTheme();
+				} catch (err) {
+					console.error('Error updating renderer theme:', err);
+				}
 			});
 		});
 		
@@ -31,8 +35,16 @@ export default class MathGraphPlugin extends Plugin {
 			this.app.workspace.on('css-change', () => {
 				console.log('CSS changed, updating renderer themes');
 				this.themeManager.refreshColors();
-				this.activeRenderers.forEach(renderer => {
-					renderer.updateTheme();
+				// Create array to avoid modification during iteration
+				const renderers = Array.from(this.activeRenderers);
+				renderers.forEach(renderer => {
+					try {
+						renderer.updateTheme();
+					} catch (err) {
+						console.error('Error updating renderer theme:', err);
+						// Remove failed renderer from active set
+						this.activeRenderers.delete(renderer);
+					}
 				});
 			})
 		);

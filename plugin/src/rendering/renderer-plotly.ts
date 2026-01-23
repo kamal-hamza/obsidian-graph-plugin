@@ -320,7 +320,10 @@ export class RendererPlotly {
         };
 
         // Render the plot
-        Plotly.newPlot(this.plotDiv, traces, layout, config);
+        Plotly.newPlot(this.plotDiv, traces, layout, config).catch((err) => {
+            console.error('Error rendering 2D plot:', err);
+            this.renderError('Failed to render graph: ' + err.message);
+        });
 
         // Setup dynamic recalculation on zoom/pan
         if (this.wasmModule && this.equation) {
@@ -484,7 +487,10 @@ export class RendererPlotly {
         };
 
         // Render the plot
-        Plotly.newPlot(this.plotDiv, traces, layout, config);
+        Plotly.newPlot(this.plotDiv, traces, layout, config).catch((err) => {
+            console.error('Error rendering 3D plot:', err);
+            this.renderError('Failed to render graph: ' + err.message);
+        });
 
         // Setup dynamic recalculation on zoom/pan
         if (this.wasmModule && this.equation) {
@@ -883,6 +889,11 @@ export class RendererPlotly {
      */
     public updateTheme(): void {
         if (!this.plotDiv) return;
+        
+        // Check if the plot still exists in the DOM
+        if (!document.body.contains(this.plotDiv)) {
+            return;
+        }
 
         // Refresh theme colors
         this.themeManager.refreshColors();
@@ -993,8 +1004,10 @@ export class RendererPlotly {
             },
         } as any;
 
-        // Apply the update
-        Plotly.relayout(this.plotDiv, update);
+        // Apply the update with error handling
+        Plotly.relayout(this.plotDiv, update).catch((err) => {
+            console.error('Error updating theme layout:', err);
+        });
 
         // Update main trace colors (line and hover)
         const traceUpdate: any = {
@@ -1016,10 +1029,14 @@ export class RendererPlotly {
         if (this.mode === '3d') {
             Plotly.restyle(this.plotDiv, {
                 colorscale: this.generateThemeColorscale()
-            }, [0]);
+            }, [0]).catch((err) => {
+                console.error('Error updating colorscale:', err);
+            });
         }
 
-        Plotly.restyle(this.plotDiv, traceUpdate, [0]);
+        Plotly.restyle(this.plotDiv, traceUpdate, [0]).catch((err) => {
+            console.error('Error updating theme trace:', err);
+        });
     }
 
     /**
@@ -1056,9 +1073,14 @@ export class RendererPlotly {
             this.recalculationDebounce = null;
         }
 
-        // Purge Plotly to free memory
+        // Purge Plotly to free memory and WebGL context
         if (this.plotDiv) {
-            Plotly.purge(this.plotDiv);
+            try {
+                Plotly.purge(this.plotDiv);
+            } catch (err) {
+                console.error('Error purging Plotly:', err);
+            }
+            this.plotDiv.remove();
             this.plotDiv = null;
         }
 
