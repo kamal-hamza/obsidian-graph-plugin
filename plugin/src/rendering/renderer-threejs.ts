@@ -218,7 +218,7 @@ export class RendererThreeJS {
         const positions = new Float32Array(pointCount * 3);
 
         for (let i = 0; i < pointCount; i++) {
-            const point = result.path[i];
+            const point = result.path[i]!;
             positions[i * 3] = point.x;
             positions[i * 3 + 1] = point.y;
             positions[i * 3 + 2] = 0; // Z = 0 for 2D
@@ -264,7 +264,7 @@ export class RendererThreeJS {
         let maxZ = -Infinity;
 
         for (let i = 0; i < totalPoints; i++) {
-            const point = result.path[i];
+            const point = result.path[i]!;
             positions[i * 3] = point.x;
             positions[i * 3 + 1] = point.z; // Y is up in Three.js
             positions[i * 3 + 2] = point.y;
@@ -276,7 +276,7 @@ export class RendererThreeJS {
         // Color mapping based on height (shader alternative would be better)
         const range = maxZ - minZ || 1;
         for (let i = 0; i < totalPoints; i++) {
-            const z = positions[i * 3 + 1];
+            const z = positions[i * 3 + 1]!;
             const normalized = (z - minZ) / range;
             
             // Color gradient: blue (low) -> green (mid) -> red (high)
@@ -444,9 +444,9 @@ export class RendererThreeJS {
         let minZ = Infinity, maxZ = -Infinity;
 
         for (let i = 0; i < positions.length; i += 3) {
-            const x = positions[i];
-            const y = positions[i + 1];
-            const z = positions[i + 2];
+            const x = positions[i]!;
+            const y = positions[i + 1]!;
+            const z = positions[i + 2]!;
 
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
@@ -558,7 +558,7 @@ export class RendererThreeJS {
             }
 
             // Update geometry (don't rebuild!)
-            if (this.mainLine && this.mainLine.geometry) {
+            if (this.mainLine && this.mainLine.geometry && this.mainLine.geometry.attributes.position) {
                 this.mainLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
                 this.mainLine.geometry.attributes.position.needsUpdate = true;
             }
@@ -625,7 +625,7 @@ export class RendererThreeJS {
             const intersects = this.raycaster.intersectObjects(this.interestingPointsGroup.children, true);
 
             if (intersects.length > 0) {
-                const object = intersects[0].object;
+                const object = intersects[0]!.object;
                 const userData = (object as any).userData;
 
                 if (userData && userData.label) {
