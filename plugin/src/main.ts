@@ -13,6 +13,9 @@ export default class MathGraphPlugin extends Plugin {
 	async onload() {
 		console.log('Loading Math Graph Plugin...');
 
+		// Setup global error handler for WebGL/shader errors
+		this.setupGlobalErrorHandlers();
+
 		// Initialize theme manager
 		this.themeManager = ThemeManager.getInstance();
 		this.themeManager.refreshColors();
@@ -498,6 +501,26 @@ export default class MathGraphPlugin extends Plugin {
 	/**
 	 * Render an error message
 	 */
+	/**
+	 * Setup global error handlers to catch WebGL/shader errors gracefully
+	 */
+	private setupGlobalErrorHandlers(): void {
+		// Capture console.error to catch shader compilation errors
+		const originalError = console.error;
+		console.error = (...args: any[]) => {
+			// Check if this is a shader error
+			const errorMessage = args.join(' ');
+			if (errorMessage.includes('gl-shader') || errorMessage.includes('Error compiling shader')) {
+				// Log it but don't spam the console
+				console.warn('WebGL shader warning (may be due to context issues):', args[0]);
+				// Only show the first part of the error
+				return;
+			}
+			// Otherwise, use original error logging
+			originalError.apply(console, args);
+		};
+	}
+
 	private renderError(container: HTMLElement, message: string): void {
 		const colors = this.themeManager.getColors();
 		

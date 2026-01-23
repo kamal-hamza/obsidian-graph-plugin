@@ -3,7 +3,7 @@
 
 import * as Plotly from 'plotly.js-dist-min';
 import type { GraphResult, InterestingPoint, ResultType, MathEngineModule } from '../types';
-import { ThemeManager, type ThemeColors } from './theme-manager';
+import { PlotlyThemeConfig } from './plotly-theme-config';
 
 export interface RendererPlotlyOptions {
     width: number;
@@ -21,7 +21,7 @@ export interface RendererPlotlyOptions {
  * Works for both 2D and 3D graphs with native acceleration
  */
 export class RendererPlotly {
-    private themeManager: ThemeManager;
+    private themeConfig: PlotlyThemeConfig;
     private container: HTMLElement;
     private plotDiv: HTMLElement | null = null;
     
@@ -41,83 +41,7 @@ export class RendererPlotly {
     private maxRange3D: number = 0;
     private lastResolution3D: number = 0;
     
-    /**
-     * Generate a custom colorscale based on Obsidian theme colors
-     */
-    private generateThemeColorscale(): any[] {
-        const colors = this.themeManager.getColors();
-        
-        // Detect if we're in dark or light mode
-        const isDark = this.isDarkTheme();
-        
-        // Get the base accent color and create complementary colors
-        const accent = colors.interactiveAccent;
-        const accentHover = colors.interactiveAccentHover;
-        
-        // Create vibrant complementary colors based on accent
-        const complementaryColors = this.generateComplementaryColors(accent, isDark);
-        
-        // Create adaptive colorscale based on theme mode
-        if (isDark) {
-            // Dark theme: vibrant blue → accent → warm tones
-            return [
-                [0, complementaryColors.cool],      // cool blue for low values
-                [0.25, complementaryColors.coolMid], // bright blue
-                [0.4, accent],                       // theme accent at mid-low
-                [0.6, accentHover],                  // theme accent hover at mid
-                [0.75, complementaryColors.warmMid], // warm amber/orange
-                [1, complementaryColors.warm]        // warm red for high values
-            ];
-        } else {
-            // Light theme: slightly deeper colors that work on light backgrounds
-            return [
-                [0, complementaryColors.coolDeep],   // deeper blue for low values
-                [0.25, complementaryColors.cool],    // medium blue
-                [0.4, accent],                       // theme accent at mid-low
-                [0.6, accentHover],                  // theme accent hover at mid
-                [0.75, complementaryColors.warmMid], // warm orange
-                [1, complementaryColors.warmDeep]    // deeper red for high values
-            ];
-        }
-    }
-    
-    /**
-     * Generate complementary colors based on accent color and theme mode
-     */
-    private generateComplementaryColors(accentHex: string, isDark: boolean): {
-        cool: string;
-        coolMid: string;
-        coolDeep: string;
-        warmMid: string;
-        warm: string;
-        warmDeep: string;
-    } {
-        // Parse the accent color
-        const rgb = this.hexToRGB(accentHex);
-        const [r, g, b] = rgb;
-        
-        if (isDark) {
-            // Dark theme: use vibrant, saturated colors
-            return {
-                cool: '#3b82f6',        // bright blue
-                coolMid: '#6366f1',     // indigo
-                coolDeep: '#2563eb',    // deep blue (unused in dark)
-                warmMid: '#f59e0b',     // amber
-                warm: '#ef4444',        // red
-                warmDeep: '#dc2626'     // deep red (unused in dark)
-            };
-        } else {
-            // Light theme: use deeper, more saturated colors for visibility
-            return {
-                cool: '#2563eb',        // medium-deep blue
-                coolMid: '#3b82f6',     // bright blue
-                coolDeep: '#1e40af',    // deep blue
-                warmMid: '#f97316',     // orange
-                warm: '#dc2626',        // deep red
-                warmDeep: '#991b1b'     // very deep red
-            };
-        }
-    }
+
     
     /**
      * Detect if current theme is dark mode
@@ -129,7 +53,7 @@ export class RendererPlotly {
         }
         
         // Fallback: check background color luminance
-        const bgColor = this.themeManager.getColors().backgroundPrimary;
+        const bgColor = this.themeConfig['themeManager'].getColors().backgroundPrimary;
         const rgb = this.hexToRGB(bgColor);
         
         // Calculate relative luminance
@@ -160,7 +84,7 @@ export class RendererPlotly {
     
     constructor(container: HTMLElement, wasmModule?: MathEngineModule) {
         this.container = container;
-        this.themeManager = ThemeManager.getInstance();
+        this.themeConfig = new PlotlyThemeConfig();
         this.wasmModule = wasmModule || null;
     }
 
@@ -168,6 +92,17 @@ export class RendererPlotly {
      * Main render entry point
      */
     public render(result: GraphResult, options: RendererPlotlyOptions, equation?: string): void {
+        // Clean up any existing plot first
+        if (this.plotDiv) {
+            try {
+                Plotly.purge(this.plotDiv);
+                this.plotDiv.remove();
+            } catch (err) {
+                console.warn('Error cleaning up previous plot:', err);
+            }
+            this.plotDiv = null;
+        }
+        
         this.currentOptions = options;
         this.mode = options.mode || '2d';
         this.equation = equation || '';
@@ -178,9 +113,20 @@ export class RendererPlotly {
         }
 
         // Create plot container
-        this.plotDiv = this.container.createDiv({ cls: 'plotly-graph-container' });
+        this.plotDiv = this.container.createDiv({ cls: 'math-graph-plotly' });
         this.plotDiv.style.width = `${options.width}px`;
         this.plotDiv.style.height = `${options.height}px`;
+        
+        // Add WebGL context lost handler
+        this.plotDiv.addEventListener('webglcontextlost', (event: Event) => {
+            event.preventDefault();
+            console.warn('WebGL context lost for graph plot');
+        });
+        
+        this.plotDiv.addEventListener('webglcontextrestored', () => {
+            console.log('WebGL context restored, attempting to re-render');
+            // Context restored - user may need to refresh the note to see graphs again
+        });
 
         // Render based on mode
         if (this.mode === '2d') {
@@ -196,8 +142,8 @@ export class RendererPlotly {
     private render2D(result: GraphResult, options: RendererPlotlyOptions): void {
         if (!this.plotDiv) return;
 
-        const colors = this.themeManager.getColors();
-        const obsidianColors = this.themeManager.getObsidianColors();
+        const colors = this.themeConfig['themeManager'].getColors();
+        const obsidianColors = this.themeConfig['themeManager'].getObsidianColors();
         
         // Extract x and y coordinates from path
         const xData: number[] = [];
@@ -234,7 +180,7 @@ export class RendererPlotly {
 
         // Add interesting points if requested
         if (options.showPoints !== false && result.points.length > 0) {
-            const pointTraces = this.createInterestingPointTraces2D(result.points, colors);
+            const pointTraces = this.createInterestingPointTraces2D(result.points);
             traces.push(...pointTraces);
         }
 
@@ -338,8 +284,6 @@ export class RendererPlotly {
      */
     private render3D(result: GraphResult, options: RendererPlotlyOptions): void {
         if (!this.plotDiv) return;
-
-        const colors = this.themeManager.getColors();
         
         // Convert path array to 2D grid for surface plot
         const gridData = this.pathToGrid(result.path);
@@ -349,145 +293,39 @@ export class RendererPlotly {
             return;
         }
 
-        // Main surface trace with theme-based colorscale
-        const surfaceTrace: Partial<Plotly.PlotData> = {
+        // Create surface trace with theme styling
+        const surfaceTrace = this.themeConfig.style3DSurfaceTrace({
             x: gridData.x,
             y: gridData.y,
             z: gridData.z,
-            type: 'surface',
-            colorscale: this.generateThemeColorscale(),
-            showscale: true,
-            colorbar: {
-                title: {
-                    text: 'z',
-                    font: {
-                        color: colors.textNormal,
-                        family: 'var(--font-interface)',
-                    },
-                },
-                tickfont: {
-                    color: colors.textMuted,
-                },
-                outlinecolor: colors.borderColor,
-                bgcolor: colors.backgroundSecondary,
-            },
-            name: this.equation || 'f(x, y)',
-            hovertemplate: 'x: %{x}<br>y: %{y}<br>z: %{z}<extra></extra>',
-            hoverlabel: {
-                bgcolor: colors.backgroundSecondary,
-                bordercolor: colors.interactiveAccent,
-                font: {
-                    color: colors.textNormal,
-                },
-            },
-            contours: {
-                x: {
-                    show: true,
-                    usecolormap: true,
-                    highlightcolor: colors.interactiveAccent,
-                    project: { z: true }
-                }
-            } as any,
-        };
+        }, this.equation);
 
         const traces: Partial<Plotly.PlotData>[] = [surfaceTrace];
 
         // Add interesting points if requested
         if (options.showPoints !== false && result.points.length > 0) {
-            const pointTrace = this.createInterestingPointTraces3D(result.points, colors);
+            const pointTrace = this.createInterestingPointTraces3D(result.points);
             traces.push(pointTrace);
         }
 
-        // Create 3D layout
-        const layout: Partial<Plotly.Layout> = {
-            width: options.width,
-            height: options.height,
-            paper_bgcolor: colors.backgroundSecondary,
-            font: {
-                color: colors.textNormal,
-                family: 'var(--font-interface)',
-                size: 12,
-            },
-            scene: {
-                xaxis: {
-                    title: {
-                        text: 'x',
-                        font: {
-                            color: colors.textMuted,
-                        },
-                    },
-                    gridcolor: colors.backgroundModifier,
-                    gridwidth: 1,
-                    showgrid: options.showGrid !== false,
-                    backgroundcolor: colors.backgroundPrimary,
-                    color: colors.textNormal,
-                    tickfont: {
-                        color: colors.textMuted,
-                    },
-                },
-                yaxis: {
-                    title: {
-                        text: 'y',
-                        font: {
-                            color: colors.textMuted,
-                        },
-                    },
-                    gridcolor: colors.backgroundModifier,
-                    gridwidth: 1,
-                    showgrid: options.showGrid !== false,
-                    backgroundcolor: colors.backgroundPrimary,
-                    color: colors.textNormal,
-                    tickfont: {
-                        color: colors.textMuted,
-                    },
-                },
-                zaxis: {
-                    title: {
-                        text: 'z',
-                        font: {
-                            color: colors.textMuted,
-                        },
-                    },
-                    gridcolor: colors.backgroundModifier,
-                    gridwidth: 1,
-                    showgrid: options.showGrid !== false,
-                    backgroundcolor: colors.backgroundPrimary,
-                    color: colors.textNormal,
-                    tickfont: {
-                        color: colors.textMuted,
-                    },
-                },
-                bgcolor: 'rgba(0,0,0,0)', // Transparent to show paper background
-            },
-            hovermode: 'closest',
-            showlegend: result.points.length > 0,
-            legend: {
-                bgcolor: colors.backgroundSecondary,
-                bordercolor: colors.borderColor,
-                borderwidth: 1,
-                font: {
-                    color: colors.textNormal,
-                    family: 'var(--font-interface)',
-                },
-            },
-            margin: {
-                l: 0,
-                r: 0,
-                t: 30,
-                b: 0,
-            },
-        };
+        // Get themed 3D layout
+        const layout = this.themeConfig.get3DLayout(
+            options.width,
+            options.height,
+            options.title,
+            options.showGrid !== false,
+            result.points.length > 0
+        );
 
-        // Config for 3D interactivity
-        const config: Partial<Plotly.Config> = {
-            responsive: true,
-            displayModeBar: true,
-            displaylogo: false,
-            modeBarButtonsToRemove: ['lasso2d', 'select2d'],
-        };
+        // Get config
+        const config = this.themeConfig.getPlotlyConfig();
 
+        console.log('🎨 Rendering 3D plot with colorscale:', surfaceTrace.colorscale);
+        
         // Render the plot
-        Plotly.newPlot(this.plotDiv, traces, layout, config).catch((err) => {
+        Plotly.newPlot(this.plotDiv, traces, layout, config).then(() => {
+            console.log('✅ 3D plot rendered with themed colorscale');
+        }).catch((err) => {
             console.error('Error rendering 3D plot:', err);
             this.renderError('Failed to render graph: ' + err.message);
         });
@@ -553,9 +391,9 @@ export class RendererPlotly {
      * Create traces for interesting points in 2D
      */
     private createInterestingPointTraces2D(
-        points: InterestingPoint[],
-        colors: ThemeColors
+        points: InterestingPoint[]
     ): Partial<Plotly.PlotData>[] {
+        const colors = this.themeConfig['themeManager'].getColors();
         const traces: Partial<Plotly.PlotData>[] = [];
 
         // Group points by type
@@ -652,8 +490,7 @@ export class RendererPlotly {
      * Create trace for interesting points in 3D
      */
     private createInterestingPointTraces3D(
-        points: InterestingPoint[],
-        colors: ThemeColors
+        points: InterestingPoint[]
     ): Partial<Plotly.PlotData> {
         const colorMap: { [key: number]: string } = {
             0: '#3b82f6', // zeros - blue
@@ -895,147 +732,30 @@ export class RendererPlotly {
             return;
         }
 
-        // Refresh theme colors
-        this.themeManager.refreshColors();
-        const colors = this.themeManager.getColors();
-
-        // Build update object based on mode
-        const update: Partial<Plotly.Layout> = {
-            paper_bgcolor: colors.backgroundSecondary,
-            plot_bgcolor: 'rgba(0,0,0,0)', // Transparent plot area
-            font: {
-                color: colors.textNormal,
-                family: 'var(--font-interface)',
-                size: 12,
-            },
-        };
-
-        if (this.mode === '2d') {
-            update.xaxis = {
-                title: {
-                    font: {
-                        color: colors.textMuted,
-                    },
-                },
-                gridcolor: colors.backgroundModifier,
-                gridwidth: 1,
-                zerolinecolor: colors.interactiveAccent,
-                zerolinewidth: 1.5,
-                linecolor: colors.borderColor,
-                linewidth: 1,
-                color: colors.textNormal,
-                tickfont: {
-                    color: colors.textMuted,
-                },
-            } as any;
-            update.yaxis = {
-                title: {
-                    font: {
-                        color: colors.textMuted,
-                    },
-                },
-                gridcolor: colors.backgroundModifier,
-                gridwidth: 1,
-                zerolinecolor: colors.interactiveAccent,
-                zerolinewidth: 1.5,
-                linecolor: colors.borderColor,
-                linewidth: 1,
-                color: colors.textNormal,
-                tickfont: {
-                    color: colors.textMuted,
-                },
-            } as any;
-        } else {
-            update.scene = {
-                xaxis: {
-                    title: {
-                        font: {
-                            color: colors.textMuted,
-                        },
-                    },
-                    gridcolor: colors.backgroundModifier,
-                    gridwidth: 1,
-                    backgroundcolor: colors.backgroundPrimary,
-                    color: colors.textNormal,
-                    tickfont: {
-                        color: colors.textMuted,
-                    },
-                } as any,
-                yaxis: {
-                    title: {
-                        font: {
-                            color: colors.textMuted,
-                        },
-                    },
-                    gridcolor: colors.backgroundModifier,
-                    gridwidth: 1,
-                    backgroundcolor: colors.backgroundPrimary,
-                    color: colors.textNormal,
-                    tickfont: {
-                        color: colors.textMuted,
-                    },
-                } as any,
-                zaxis: {
-                    title: {
-                        font: {
-                            color: colors.textMuted,
-                        },
-                    },
-                    gridcolor: colors.backgroundModifier,
-                    gridwidth: 1,
-                    backgroundcolor: colors.backgroundPrimary,
-                    color: colors.textNormal,
-                    tickfont: {
-                        color: colors.textMuted,
-                    },
-                } as any,
-                bgcolor: 'rgba(0,0,0,0)', // Transparent to show paper background
-            } as any;
+        // Validate WebGL context before attempting updates (3D only)
+        if (this.mode === '3d' && !this.isWebGLContextValid()) {
+            console.warn('WebGL context lost, skipping theme update');
+            return;
         }
 
-        // Update legend colors
-        update.legend = {
-            bgcolor: colors.backgroundSecondary,
-            bordercolor: colors.borderColor,
-            borderwidth: 1,
-            font: {
-                color: colors.textNormal,
-                family: 'var(--font-interface)',
-            },
-        } as any;
+        console.log('🎨 Updating theme for', this.mode, 'plot');
 
-        // Apply the update with error handling
-        Plotly.relayout(this.plotDiv, update).catch((err) => {
-            console.error('Error updating theme layout:', err);
-        });
+        // Get theme updates from centralized config
+        const { traceUpdate, layoutUpdate } = this.themeConfig.getThemeUpdateForMode(this.mode);
 
-        // Update main trace colors (line and hover)
-        const traceUpdate: any = {
-            'line.color': colors.interactiveAccent,
-            'hoverlabel.bgcolor': colors.backgroundSecondary,
-            'hoverlabel.bordercolor': colors.interactiveAccent,
-            'hoverlabel.font.color': colors.textNormal,
-        };
-
-        // For 3D mode, also update colorbar
-        if (this.mode === '3d') {
-            traceUpdate['colorbar.title.font.color'] = colors.textNormal;
-            traceUpdate['colorbar.tickfont.color'] = colors.textMuted;
-            traceUpdate['colorbar.outlinecolor'] = colors.borderColor;
-            traceUpdate['colorbar.bgcolor'] = colors.backgroundSecondary;
-        }
-
-        // For 3D mode, update the colorscale to match theme
-        if (this.mode === '3d') {
-            Plotly.restyle(this.plotDiv, {
-                colorscale: this.generateThemeColorscale()
-            }, [0]).catch((err) => {
-                console.error('Error updating colorscale:', err);
-            });
-        }
-
-        Plotly.restyle(this.plotDiv, traceUpdate, [0]).catch((err) => {
-            console.error('Error updating theme trace:', err);
+        // Apply updates atomically
+        Plotly.update(this.plotDiv, traceUpdate, layoutUpdate, [0]).then(() => {
+            console.log('✅ Theme updated successfully for', this.mode, 'plot');
+            
+            // Verify colorscale was applied for 3D
+            if (this.mode === '3d') {
+                const plotData = (this.plotDiv as any).data;
+                if (plotData && plotData[0]) {
+                    console.log('🎨 Verified colorscale after update:', plotData[0].colorscale);
+                }
+            }
+        }).catch((err) => {
+            console.error('❌ Error updating theme:', err);
         });
     }
 
@@ -1043,7 +763,7 @@ export class RendererPlotly {
      * Render error message
      */
     private renderError(message: string): void {
-        const colors = this.themeManager.getColors();
+        const colors = this.themeConfig['themeManager'].getColors();
         
         this.container.empty();
         
@@ -1064,6 +784,30 @@ export class RendererPlotly {
     }
 
     /**
+     * Check if WebGL context is still valid
+     */
+    private isWebGLContextValid(): boolean {
+        if (!this.plotDiv) return false;
+        
+        try {
+            // Try to find the canvas element within the plot
+            const canvas = this.plotDiv.querySelector('canvas');
+            if (!canvas) return false;
+            
+            const gl = (canvas as HTMLCanvasElement).getContext('webgl') || 
+                       (canvas as HTMLCanvasElement).getContext('experimental-webgl') as WebGLRenderingContext;
+            
+            if (!gl) return false;
+            
+            // Check if context is lost
+            return !(gl as WebGLRenderingContext).isContextLost();
+        } catch (err) {
+            console.warn('Error checking WebGL context:', err);
+            return false;
+        }
+    }
+
+    /**
      * Destroy and cleanup
      */
     public destroy(): void {
@@ -1076,6 +820,12 @@ export class RendererPlotly {
         // Purge Plotly to free memory and WebGL context
         if (this.plotDiv) {
             try {
+                // Remove WebGL context lost handler if exists
+                const canvas = this.plotDiv.querySelector('canvas');
+                if (canvas) {
+                    (canvas as HTMLCanvasElement).removeEventListener('webglcontextlost', () => {});
+                }
+                
                 Plotly.purge(this.plotDiv);
             } catch (err) {
                 console.error('Error purging Plotly:', err);
