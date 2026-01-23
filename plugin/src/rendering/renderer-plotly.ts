@@ -1,7 +1,7 @@
 // High-performance unified Plotly.js renderer for both 2D and 3D graphs
 // Leverages Plotly's native WebGL acceleration and built-in interaction
 
-import Plotly from 'plotly.js-dist-min';
+import * as Plotly from 'plotly.js-dist-min';
 import type { GraphResult, InterestingPoint, ResultType, MathEngineModule } from '../types';
 import { ThemeManager } from './theme-manager';
 
@@ -171,7 +171,7 @@ export class RendererPlotly {
 
         // Setup dynamic recalculation on zoom/pan
         if (this.wasmModule && this.equation) {
-            this.plotDiv.on('plotly_relayout', () => {
+            (this.plotDiv as any).on('plotly_relayout', () => {
                 this.handleZoomPanDebounced();
             });
         }
@@ -204,13 +204,13 @@ export class RendererPlotly {
             name: this.equation || 'f(x, y)',
             hovertemplate: 'x: %{x}<br>y: %{y}<br>z: %{z}<extra></extra>',
             contours: {
-                z: {
+                x: {
                     show: true,
                     usecolormap: true,
                     highlightcolor: colors.accent,
                     project: { z: true }
                 }
-            },
+            } as any,
         };
 
         const traces: Partial<Plotly.PlotData>[] = [surfaceTrace];
@@ -284,7 +284,7 @@ export class RendererPlotly {
 
         // Setup dynamic recalculation on zoom/pan
         if (this.wasmModule && this.equation) {
-            this.plotDiv.on('plotly_relayout', () => {
+            (this.plotDiv as any).on('plotly_relayout', () => {
                 this.handleZoomPanDebounced();
             });
         }
@@ -324,11 +324,15 @@ export class RendererPlotly {
         for (let i = 0; i < yArray.length; i++) {
             zGrid[i] = [];
             for (let j = 0; j < xArray.length; j++) {
+                const xVal = xArray[j];
+                const yVal = yArray[i];
+                if (xVal === undefined || yVal === undefined) continue;
+                
                 const point = path.find(p => 
-                    Math.abs(p.x - xArray[j]) < 0.0001 && 
-                    Math.abs(p.y - yArray[i]) < 0.0001
+                    Math.abs(p.x - xVal) < 0.0001 && 
+                    Math.abs(p.y - yVal) < 0.0001
                 );
-                zGrid[i][j] = point ? point.z : 0;
+                zGrid[i]![j] = point ? point.z : 0;
             }
         }
 
@@ -373,7 +377,7 @@ export class RendererPlotly {
                 },
                 name: 'Zeros',
                 text: zeros.map(p => p.label),
-                hoverinfo: 'text+x+y',
+                hoverinfo: 'x+y+text' as any,
             });
         }
 
@@ -391,7 +395,7 @@ export class RendererPlotly {
                 },
                 name: 'Local Maxima',
                 text: maxima.map(p => p.label),
-                hoverinfo: 'text+x+y',
+                hoverinfo: 'x+y+text' as any,
             });
         }
 
@@ -409,7 +413,7 @@ export class RendererPlotly {
                 },
                 name: 'Local Minima',
                 text: minima.map(p => p.label),
-                hoverinfo: 'text+x+y',
+                hoverinfo: 'x+y+text' as any,
             });
         }
 
@@ -427,7 +431,7 @@ export class RendererPlotly {
                 },
                 name: 'Intercepts',
                 text: intercepts.map(p => p.label),
-                hoverinfo: 'text+x+y',
+                hoverinfo: 'x+y+text' as any,
             });
         }
 
@@ -463,7 +467,7 @@ export class RendererPlotly {
             },
             name: 'Interesting Points',
             text: points.map(p => `${this.getTypeLabel(p.type)}: ${p.label}`),
-            hoverinfo: 'text+x+y+z',
+            hoverinfo: 'x+y+z+text' as any,
         };
     }
 
