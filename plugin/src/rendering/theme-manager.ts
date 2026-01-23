@@ -12,6 +12,14 @@ export interface ThemeColors {
     borderColor: string;
 }
 
+export interface ObsidianColors {
+    background: string;
+    text: string;
+    accent: string;
+    grid: string;
+    faint: string;
+}
+
 export class ThemeManager {
     private static instance: ThemeManager;
     private colors: ThemeColors | null = null;
@@ -62,6 +70,21 @@ export class ThemeManager {
             return this.refreshColors();
         }
         return this.colors;
+    }
+
+    /**
+     * Get simplified Obsidian color set for graphing
+     * This is the enhanced method for Desmos-style integration
+     */
+    public getObsidianColors(): ObsidianColors {
+        const style = getComputedStyle(document.body);
+        return {
+            background: style.getPropertyValue('--background-primary').trim() || '#202020',
+            text: style.getPropertyValue('--text-normal').trim() || '#dcddde',
+            accent: style.getPropertyValue('--interactive-accent').trim() || '#7c3aed',
+            grid: style.getPropertyValue('--background-modifier-border').trim() || '#333333',
+            faint: style.getPropertyValue('--text-faint').trim() || '#6c6c6c'
+        };
     }
 
     /**
