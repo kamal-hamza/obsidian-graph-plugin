@@ -242,8 +242,8 @@ export class RendererPlotly {
         const layout: Partial<Plotly.Layout> = {
             width: options.width,
             height: options.height,
-            paper_bgcolor: colors.backgroundPrimary,
-            plot_bgcolor: colors.backgroundPrimary,
+            paper_bgcolor: colors.backgroundSecondary,
+            plot_bgcolor: 'rgba(0,0,0,0)', // Transparent plot area
             font: {
                 color: colors.textNormal,
                 family: 'var(--font-interface)',
@@ -402,7 +402,7 @@ export class RendererPlotly {
         const layout: Partial<Plotly.Layout> = {
             width: options.width,
             height: options.height,
-            paper_bgcolor: colors.backgroundPrimary,
+            paper_bgcolor: colors.backgroundSecondary,
             font: {
                 color: colors.textNormal,
                 family: 'var(--font-interface)',
@@ -457,7 +457,7 @@ export class RendererPlotly {
                         color: colors.textMuted,
                     },
                 },
-                bgcolor: colors.backgroundPrimary,
+                bgcolor: 'rgba(0,0,0,0)', // Transparent to show paper background
             },
             hovermode: 'closest',
             showlegend: result.points.length > 0,
@@ -901,8 +901,8 @@ export class RendererPlotly {
 
         // Build update object based on mode
         const update: Partial<Plotly.Layout> = {
-            paper_bgcolor: colors.backgroundPrimary,
-            plot_bgcolor: colors.backgroundPrimary,
+            paper_bgcolor: colors.backgroundSecondary,
+            plot_bgcolor: 'rgba(0,0,0,0)', // Transparent plot area
             font: {
                 color: colors.textNormal,
                 family: 'var(--font-interface)',
@@ -989,7 +989,7 @@ export class RendererPlotly {
                         color: colors.textMuted,
                     },
                 } as any,
-                bgcolor: colors.backgroundPrimary,
+                bgcolor: 'rgba(0,0,0,0)', // Transparent to show paper background
             } as any;
         }
 
