@@ -50,27 +50,72 @@ export class RendererPlotly {
         // Detect if we're in dark or light mode
         const isDark = this.isDarkTheme();
         
+        // Get the base accent color and create complementary colors
+        const accent = colors.interactiveAccent;
+        const accentHover = colors.interactiveAccentHover;
+        
+        // Create vibrant complementary colors based on accent
+        const complementaryColors = this.generateComplementaryColors(accent, isDark);
+        
         // Create adaptive colorscale based on theme mode
         if (isDark) {
-            // Dark theme: use vibrant colors that pop on dark backgrounds
+            // Dark theme: vibrant blue → accent → warm tones
             return [
-                [0, '#1e40af'],  // deep blue for low values
-                [0.2, '#3b82f6'], // bright blue
-                [0.4, colors.interactiveAccent], // theme accent at mid-low
-                [0.6, colors.interactiveAccentHover], // theme accent hover at mid-high
-                [0.8, '#f59e0b'], // amber for high values
-                [1, '#ef4444']   // red for maximum values
+                [0, complementaryColors.cool],      // cool blue for low values
+                [0.25, complementaryColors.coolMid], // bright blue
+                [0.4, accent],                       // theme accent at mid-low
+                [0.6, accentHover],                  // theme accent hover at mid
+                [0.75, complementaryColors.warmMid], // warm amber/orange
+                [1, complementaryColors.warm]        // warm red for high values
             ];
         } else {
-            // Light theme: use slightly muted colors that work on light backgrounds
+            // Light theme: slightly deeper colors that work on light backgrounds
             return [
-                [0, '#3b82f6'],  // medium blue for low values
-                [0.2, '#6366f1'], // indigo
-                [0.4, colors.interactiveAccent], // theme accent at mid-low
-                [0.6, colors.interactiveAccentHover], // theme accent hover at mid-high
-                [0.8, '#f97316'], // orange for high values
-                [1, '#dc2626']   // darker red for maximum values
+                [0, complementaryColors.coolDeep],   // deeper blue for low values
+                [0.25, complementaryColors.cool],    // medium blue
+                [0.4, accent],                       // theme accent at mid-low
+                [0.6, accentHover],                  // theme accent hover at mid
+                [0.75, complementaryColors.warmMid], // warm orange
+                [1, complementaryColors.warmDeep]    // deeper red for high values
             ];
+        }
+    }
+    
+    /**
+     * Generate complementary colors based on accent color and theme mode
+     */
+    private generateComplementaryColors(accentHex: string, isDark: boolean): {
+        cool: string;
+        coolMid: string;
+        coolDeep: string;
+        warmMid: string;
+        warm: string;
+        warmDeep: string;
+    } {
+        // Parse the accent color
+        const rgb = this.hexToRGB(accentHex);
+        const [r, g, b] = rgb;
+        
+        if (isDark) {
+            // Dark theme: use vibrant, saturated colors
+            return {
+                cool: '#3b82f6',        // bright blue
+                coolMid: '#6366f1',     // indigo
+                coolDeep: '#2563eb',    // deep blue (unused in dark)
+                warmMid: '#f59e0b',     // amber
+                warm: '#ef4444',        // red
+                warmDeep: '#dc2626'     // deep red (unused in dark)
+            };
+        } else {
+            // Light theme: use deeper, more saturated colors for visibility
+            return {
+                cool: '#2563eb',        // medium-deep blue
+                coolMid: '#3b82f6',     // bright blue
+                coolDeep: '#1e40af',    // deep blue
+                warmMid: '#f97316',     // orange
+                warm: '#dc2626',        // deep red
+                warmDeep: '#991b1b'     // very deep red
+            };
         }
     }
     
