@@ -1,16 +1,20 @@
 import { Plugin, MarkdownPostProcessorContext, Notice } from 'obsidian';
 import { WasmLoader } from './wasm/loader';
 import { ThemeManager } from './rendering/theme-manager';
-import { RendererThreeJS } from './rendering/renderer-threejs';
+import { RendererPlotly } from './rendering/renderer-plotly';
 import { EquationAnalyzer } from './utils/equation-analyzer';
 import type { GraphConfig, MathEngineModule, Point, InterestingPoint, GraphResult } from './types';
 
 export default class MathGraphPlugin extends Plugin {
 	private wasmModule: MathEngineModule | null = null;
 	private themeManager: ThemeManager;
+	private activeRenderers: Set<RendererPlotly> = new Set();
 
 	async onload() {
 		console.log('Loading Math Graph Plugin...');
+
+		// Setup global error handler for WebGL/shader errors
+		this.setupGlobalErrorHandlers();
 
 		// Initialize theme manager
 		this.themeManager = ThemeManager.getInstance();
@@ -19,7 +23,34 @@ export default class MathGraphPlugin extends Plugin {
 		// Setup theme listener to refresh when theme changes
 		this.themeManager.setupThemeListener(() => {
 			console.log('Theme changed, colors refreshed');
+			// Update all active renderers (with safety check)
+			this.activeRenderers.forEach(renderer => {
+				try {
+					renderer.updateTheme();
+				} catch (err) {
+					console.error('Error updating renderer theme:', err);
+				}
+			});
 		});
+		
+		// Listen for Obsidian's css-change event for immediate theme updates
+		this.registerEvent(
+			this.app.workspace.on('css-change', () => {
+				console.log('CSS changed, updating renderer themes');
+				this.themeManager.refreshColors();
+				// Create array to avoid modification during iteration
+				const renderers = Array.from(this.activeRenderers);
+				renderers.forEach(renderer => {
+					try {
+						renderer.updateTheme();
+					} catch (err) {
+						console.error('Error updating renderer theme:', err);
+						// Remove failed renderer from active set
+						this.activeRenderers.delete(renderer);
+					}
+				});
+			})
+		);
 
 		try {
 			// Initialize WASM module
@@ -358,8 +389,28 @@ export default class MathGraphPlugin extends Plugin {
 			errorMessage: wasmResult.errorMessage
 		};
 
-		// Create unified Three.js renderer with WASM for dynamic recalculation
-		const renderer = new RendererThreeJS(container, this.wasmModule);
+		// Create unified Plotly renderer with WASM for dynamic recalculation
+		const renderer = new RendererPlotly(container, this.wasmModule);
+		
+		// Track active renderer
+		this.activeRenderers.add(renderer);
+		
+		// Setup cleanup when container is removed
+		const observer = new MutationObserver((mutations) => {
+			mutations.forEach((mutation) => {
+				mutation.removedNodes.forEach((node) => {
+					if (node === container || node.contains(container)) {
+						this.activeRenderers.delete(renderer);
+						renderer.destroy();
+						observer.disconnect();
+					}
+				});
+			});
+		});
+		if (container.parentElement) {
+			observer.observe(container.parentElement, { childList: true, subtree: true });
+		}
+		
 		renderer.render(result, {
 			width: config.width ?? 700,
 			height: config.height ?? 500,
@@ -415,8 +466,28 @@ export default class MathGraphPlugin extends Plugin {
 			errorMessage: wasmResult.errorMessage
 		};
 
-		// Create unified Three.js renderer
-		const renderer = new RendererThreeJS(container, this.wasmModule);
+		// Create unified Plotly renderer
+		const renderer = new RendererPlotly(container, this.wasmModule);
+		
+		// Track active renderer
+		this.activeRenderers.add(renderer);
+		
+		// Setup cleanup when container is removed
+		const observer = new MutationObserver((mutations) => {
+			mutations.forEach((mutation) => {
+				mutation.removedNodes.forEach((node) => {
+					if (node === container || node.contains(container)) {
+						this.activeRenderers.delete(renderer);
+						renderer.destroy();
+						observer.disconnect();
+					}
+				});
+			});
+		});
+		if (container.parentElement) {
+			observer.observe(container.parentElement, { childList: true, subtree: true });
+		}
+		
 		renderer.render(result, {
 			width: config.width ?? 700,
 			height: config.height ?? 700,
@@ -430,6 +501,26 @@ export default class MathGraphPlugin extends Plugin {
 	/**
 	 * Render an error message
 	 */
+	/**
+	 * Setup global error handlers to catch WebGL/shader errors gracefully
+	 */
+	private setupGlobalErrorHandlers(): void {
+		// Capture console.error to catch shader compilation errors
+		const originalError = console.error;
+		console.error = (...args: any[]) => {
+			// Check if this is a shader error
+			const errorMessage = args.join(' ');
+			if (errorMessage.includes('gl-shader') || errorMessage.includes('Error compiling shader')) {
+				// Log it but don't spam the console
+				console.warn('WebGL shader warning (may be due to context issues):', args[0]);
+				// Only show the first part of the error
+				return;
+			}
+			// Otherwise, use original error logging
+			originalError.apply(console, args);
+		};
+	}
+
 	private renderError(container: HTMLElement, message: string): void {
 		const colors = this.themeManager.getColors();
 		
