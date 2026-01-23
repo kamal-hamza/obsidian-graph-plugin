@@ -50,6 +50,9 @@ export class RendererThreeJS {
     private currentOptions: RendererThreeJSOptions | null = null;
     private mode: '2d' | '3d' = '2d';
     private isRecalculating: boolean = false;
+    private lastZoomLevel: number = 1;
+    private recalculationDebounce: number | null = null;
+    private currentResolution: number = 100;
     
     // Animation loop
     private animationId: number | null = null;
@@ -199,10 +202,10 @@ export class RendererThreeJS {
         // Setup event listeners
         this.setupEventListeners();
 
-        // Listen to zoom/pan for dynamic recalculation
-        if (this.wasmModule && this.equation && this.mode === '2d') {
+        // Listen to zoom/pan for dynamic recalculation (both 2D and 3D)
+        if (this.wasmModule && this.equation) {
             this.controls.addEventListener('change', () => {
-                this.handleZoomPan();
+                this.handleZoomPanDebounced();
             });
         }
     }
@@ -515,10 +518,38 @@ export class RendererThreeJS {
     }
 
     /**
-     * Handle zoom/pan for dynamic recalculation (2D Desmos-style)
+     * Debounced zoom/pan handler to avoid excessive recalculation
+     */
+    private handleZoomPanDebounced(): void {
+        if (this.recalculationDebounce !== null) {
+            clearTimeout(this.recalculationDebounce);
+        }
+
+        this.recalculationDebounce = window.setTimeout(() => {
+            this.handleZoomPan();
+        }, 150); // 150ms debounce
+    }
+
+    /**
+     * Handle zoom/pan for dynamic recalculation (Desmos-style for both 2D and 3D)
      */
     private async handleZoomPan(): Promise<void> {
-        if (this.isRecalculating || !this.wasmModule || !this.equation || this.mode !== '2d') {
+        if (this.isRecalculating || !this.wasmModule || !this.equation || !this.camera) {
+            return;
+        }
+
+        if (this.mode === '2d') {
+            await this.handleZoomPan2D();
+        } else {
+            await this.handleZoomPan3D();
+        }
+    }
+
+    /**
+     * Handle 2D dynamic recalculation
+     */
+    private async handleZoomPan2D(): Promise<void> {
+        if (this.isRecalculating || !this.wasmModule || !this.equation) {
             return;
         }
 
@@ -529,14 +560,33 @@ export class RendererThreeJS {
             const xMin = camera.left;
             const xMax = camera.right;
 
-            // Expand slightly for smooth edges
+            // Calculate zoom level change
             const range = xMax - xMin;
+            const zoomLevel = 20 / range; // 20 is initial frustum size
+            const zoomChange = Math.abs(zoomLevel - this.lastZoomLevel) / this.lastZoomLevel;
+
+            // Only recalculate if zoom changed significantly (>10%)
+            if (zoomChange < 0.1 && this.lastZoomLevel !== 1) {
+                this.isRecalculating = false;
+                return;
+            }
+
+            this.lastZoomLevel = zoomLevel;
+
+            // Expand slightly for smooth edges
             const padding = range * 0.1;
             const adjustedXMin = xMin - padding;
             const adjustedXMax = xMax + padding;
 
             // Adaptive resolution based on zoom
             const resolution = Math.min(800, Math.max(200, Math.floor(500 / Math.log10(range + 1))));
+            
+            console.log('2D Dynamic recalculation:', { 
+                xMin: adjustedXMin.toFixed(2), 
+                xMax: adjustedXMax.toFixed(2), 
+                resolution, 
+                zoomLevel: zoomLevel.toFixed(2) 
+            });
 
             // Recalculate
             const wasmResult = this.wasmModule.calculate2D(this.equation, adjustedXMin, adjustedXMax, resolution);
@@ -563,11 +613,181 @@ export class RendererThreeJS {
                 this.mainLine.geometry.attributes.position.needsUpdate = true;
             }
 
+            // Update interesting points
+            await this.updateInterestingPoints2D(wasmResult);
+
         } catch (error) {
-            console.error('Dynamic recalculation error:', error);
+            console.error('2D Dynamic recalculation error:', error);
         } finally {
             this.isRecalculating = false;
         }
+    }
+
+    /**
+     * Handle 3D dynamic recalculation
+     */
+    private async handleZoomPan3D(): Promise<void> {
+        if (this.isRecalculating || !this.wasmModule || !this.equation || !this.controls) {
+            return;
+        }
+
+        this.isRecalculating = true;
+
+        try {
+            const camera = this.camera as THREE.PerspectiveCamera;
+            const target = this.controls.target;
+            const distance = this.camera!.position.distanceTo(target);
+
+            // Calculate zoom level change
+            const zoomLevel = 30 / distance; // 30 is initial distance
+            const zoomChange = Math.abs(zoomLevel - this.lastZoomLevel) / this.lastZoomLevel;
+
+            // Only recalculate if zoom changed significantly (>20% for 3D due to expense)
+            if (zoomChange < 0.2 && this.lastZoomLevel !== 1) {
+                this.isRecalculating = false;
+                return;
+            }
+
+            this.lastZoomLevel = zoomLevel;
+
+            // Calculate visible range based on camera distance and target
+            const baseRange = distance * 0.5; // Adjust multiplier as needed
+            const xMin = target.x - baseRange;
+            const xMax = target.x + baseRange;
+            const yMin = target.z - baseRange; // Remember: Y and Z are swapped
+            const yMax = target.z + baseRange;
+
+            // Adaptive resolution - lower resolution when zoomed out
+            const resolution = Math.min(100, Math.max(30, Math.floor(80 / Math.log10(baseRange + 1))));
+            
+            console.log('3D Dynamic recalculation:', { 
+                xMin: xMin.toFixed(2), 
+                xMax: xMax.toFixed(2), 
+                yMin: yMin.toFixed(2), 
+                yMax: yMax.toFixed(2), 
+                resolution, 
+                distance: distance.toFixed(2),
+                zoomLevel: zoomLevel.toFixed(2) 
+            });
+
+            // Recalculate
+            const wasmResult = this.wasmModule.calculate3D(
+                this.equation, 
+                xMin, xMax, 
+                yMin, yMax, 
+                resolution
+            );
+
+            if (!wasmResult.success) {
+                this.isRecalculating = false;
+                return;
+            }
+
+            // Convert to typed arrays
+            const totalPoints = wasmResult.path.size();
+            const positions = new Float32Array(totalPoints * 3);
+            const colorArray = new Float32Array(totalPoints * 3);
+
+            let minZ = Infinity;
+            let maxZ = -Infinity;
+
+            for (let i = 0; i < totalPoints; i++) {
+                const point = wasmResult.path.get(i);
+                positions[i * 3] = point.x;
+                positions[i * 3 + 1] = point.z; // Y is up in Three.js
+                positions[i * 3 + 2] = point.y;
+                
+                if (point.z < minZ) minZ = point.z;
+                if (point.z > maxZ) maxZ = point.z;
+            }
+
+            // Update colors
+            const range = maxZ - minZ || 1;
+            for (let i = 0; i < totalPoints; i++) {
+                const z = positions[i * 3 + 1]!;
+                const normalized = (z - minZ) / range;
+                const color = this.heightToColor(normalized);
+                colorArray[i * 3] = color.r;
+                colorArray[i * 3 + 1] = color.g;
+                colorArray[i * 3 + 2] = color.b;
+            }
+
+            // Update geometry (don't rebuild!)
+            if (this.mainMesh && this.mainMesh.geometry) {
+                const geometry = this.mainMesh.geometry;
+                
+                // Update positions
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
+                
+                // Recreate indices for new grid size
+                const gridSize = Math.floor(Math.sqrt(totalPoints));
+                const indices: number[] = [];
+                for (let y = 0; y < gridSize - 1; y++) {
+                    for (let x = 0; x < gridSize - 1; x++) {
+                        const a = y * gridSize + x;
+                        const b = y * gridSize + x + 1;
+                        const c = (y + 1) * gridSize + x;
+                        const d = (y + 1) * gridSize + x + 1;
+                        indices.push(a, b, d);
+                        indices.push(a, d, c);
+                    }
+                }
+                geometry.setIndex(indices);
+                geometry.computeVertexNormals();
+                
+                if (geometry.attributes.position) {
+                    geometry.attributes.position.needsUpdate = true;
+                }
+                if (geometry.attributes.color) {
+                    geometry.attributes.color.needsUpdate = true;
+                }
+            }
+
+            // Store current resolution for reference
+            this.currentResolution = resolution;
+
+        } catch (error) {
+            console.error('3D Dynamic recalculation error:', error);
+        } finally {
+            this.isRecalculating = false;
+        }
+    }
+
+    /**
+     * Update interesting points for 2D graph
+     */
+    private async updateInterestingPoints2D(wasmResult: any): Promise<void> {
+        if (!this.scene || !this.interestingPointsGroup) {
+            return;
+        }
+
+        // Remove old interesting points
+        this.scene.remove(this.interestingPointsGroup);
+        this.interestingPointsGroup.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+                child.geometry.dispose();
+                (child.material as THREE.Material).dispose();
+            }
+        });
+
+        // Create new interesting points group
+        const colors = this.themeManager.getColors();
+        const points: any[] = [];
+        const pointsSize = wasmResult.points.size();
+        
+        for (let i = 0; i < pointsSize; i++) {
+            const p = wasmResult.points.get(i);
+            points.push({
+                location: { x: p.location.x, y: p.location.y, z: p.location.z },
+                type: p.type,
+                label: p.label
+            });
+        }
+
+        this.interestingPointsGroup = new THREE.Group();
+        this.renderInterestingPoints(points, colors);
+        this.scene.add(this.interestingPointsGroup);
     }
 
     /**
@@ -750,6 +970,12 @@ export class RendererThreeJS {
         if (this.animationId !== null) {
             cancelAnimationFrame(this.animationId);
             this.animationId = null;
+        }
+
+        // Clear debounce timer
+        if (this.recalculationDebounce !== null) {
+            clearTimeout(this.recalculationDebounce);
+            this.recalculationDebounce = null;
         }
 
         // Clear geometry
