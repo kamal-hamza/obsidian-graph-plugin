@@ -52,6 +52,7 @@ const context = await esbuild.context({
 		"@lezer/highlight",
 		"@lezer/lr",
 		"./math_engine.js",
+		"three",
 		...builtinModules],
 	format: "cjs",
 	target: "es2018",

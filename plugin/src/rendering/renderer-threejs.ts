@@ -560,18 +560,9 @@ export class RendererThreeJS {
             const xMin = camera.left;
             const xMax = camera.right;
 
-            // Calculate zoom level change
+            // Calculate zoom level for logging
             const range = xMax - xMin;
             const zoomLevel = 20 / range; // 20 is initial frustum size
-            const zoomChange = Math.abs(zoomLevel - this.lastZoomLevel) / this.lastZoomLevel;
-
-            // Only recalculate if zoom changed significantly (>10%)
-            if (zoomChange < 0.1 && this.lastZoomLevel !== 1) {
-                this.isRecalculating = false;
-                return;
-            }
-
-            this.lastZoomLevel = zoomLevel;
 
             // Expand slightly for smooth edges
             const padding = range * 0.1;
@@ -607,10 +598,23 @@ export class RendererThreeJS {
                 positions[i * 3 + 2] = 0;
             }
 
-            // Update geometry (don't rebuild!)
-            if (this.mainLine && this.mainLine.geometry && this.mainLine.geometry.attributes.position) {
-                this.mainLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-                this.mainLine.geometry.attributes.position.needsUpdate = true;
+            // Update geometry - dispose old and create new if vertex count changed
+            if (this.mainLine && this.mainLine.geometry) {
+                const oldGeometry = this.mainLine.geometry;
+                const oldVertexCount = oldGeometry.attributes.position ? oldGeometry.attributes.position.count : 0;
+                
+                if (oldVertexCount !== pointCount) {
+                    // Vertex count changed - need to rebuild geometry
+                    oldGeometry.dispose();
+                    const newGeometry = new THREE.BufferGeometry();
+                    newGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                    this.mainLine.geometry = newGeometry;
+                } else {
+                    // Same vertex count - just update positions
+                    const positionAttribute = oldGeometry.attributes.position as THREE.BufferAttribute;
+                    positionAttribute.array = positions;
+                    positionAttribute.needsUpdate = true;
+                }
             }
 
             // Update interesting points
@@ -638,17 +642,8 @@ export class RendererThreeJS {
             const target = this.controls.target;
             const distance = this.camera!.position.distanceTo(target);
 
-            // Calculate zoom level change
+            // Calculate zoom level for logging
             const zoomLevel = 30 / distance; // 30 is initial distance
-            const zoomChange = Math.abs(zoomLevel - this.lastZoomLevel) / this.lastZoomLevel;
-
-            // Only recalculate if zoom changed significantly (>20% for 3D due to expense)
-            if (zoomChange < 0.2 && this.lastZoomLevel !== 1) {
-                this.isRecalculating = false;
-                return;
-            }
-
-            this.lastZoomLevel = zoomLevel;
 
             // Calculate visible range based on camera distance and target
             const baseRange = distance * 0.5; // Adjust multiplier as needed
@@ -712,35 +707,48 @@ export class RendererThreeJS {
                 colorArray[i * 3 + 2] = color.b;
             }
 
-            // Update geometry (don't rebuild!)
+            // Update geometry - dispose old and create new if vertex count changed
             if (this.mainMesh && this.mainMesh.geometry) {
-                const geometry = this.mainMesh.geometry;
+                const oldGeometry = this.mainMesh.geometry;
+                const oldVertexCount = oldGeometry.attributes.position ? oldGeometry.attributes.position.count : 0;
                 
-                // Update positions
-                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-                geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
-                
-                // Recreate indices for new grid size
-                const gridSize = Math.floor(Math.sqrt(totalPoints));
-                const indices: number[] = [];
-                for (let y = 0; y < gridSize - 1; y++) {
-                    for (let x = 0; x < gridSize - 1; x++) {
-                        const a = y * gridSize + x;
-                        const b = y * gridSize + x + 1;
-                        const c = (y + 1) * gridSize + x;
-                        const d = (y + 1) * gridSize + x + 1;
-                        indices.push(a, b, d);
-                        indices.push(a, d, c);
+                if (oldVertexCount !== totalPoints) {
+                    // Vertex count changed - need to rebuild geometry entirely
+                    oldGeometry.dispose();
+                    
+                    const newGeometry = new THREE.BufferGeometry();
+                    newGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                    newGeometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
+                    
+                    // Create indices for new grid size
+                    const gridSize = Math.floor(Math.sqrt(totalPoints));
+                    const indices: number[] = [];
+                    for (let y = 0; y < gridSize - 1; y++) {
+                        for (let x = 0; x < gridSize - 1; x++) {
+                            const a = y * gridSize + x;
+                            const b = y * gridSize + x + 1;
+                            const c = (y + 1) * gridSize + x;
+                            const d = (y + 1) * gridSize + x + 1;
+                            indices.push(a, b, d);
+                            indices.push(a, d, c);
+                        }
                     }
-                }
-                geometry.setIndex(indices);
-                geometry.computeVertexNormals();
-                
-                if (geometry.attributes.position) {
-                    geometry.attributes.position.needsUpdate = true;
-                }
-                if (geometry.attributes.color) {
-                    geometry.attributes.color.needsUpdate = true;
+                    newGeometry.setIndex(indices);
+                    newGeometry.computeVertexNormals();
+                    
+                    this.mainMesh.geometry = newGeometry;
+                } else {
+                    // Same vertex count - just update attributes
+                    const positionAttribute = oldGeometry.attributes.position as THREE.BufferAttribute;
+                    const colorAttribute = oldGeometry.attributes.color as THREE.BufferAttribute;
+                    
+                    positionAttribute.array = positions;
+                    colorAttribute.array = colorArray;
+                    
+                    positionAttribute.needsUpdate = true;
+                    colorAttribute.needsUpdate = true;
+                    
+                    oldGeometry.computeVertexNormals();
                 }
             }
 
