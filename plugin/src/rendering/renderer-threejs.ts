@@ -54,11 +54,18 @@ export class RendererThreeJS {
     private recalculationDebounce: number | null = null;
     private currentResolution: number = 100;
     
+    // Track ranges and resolutions - recalculate when we need more data OR higher detail
+    private maxRange2D: number = 0;
+    private lastResolution2D: number = 0;
+    private maxRange3D: number = 0;
+    private lastResolution3D: number = 0;
+    
     // Animation loop
     private animationId: number | null = null;
     
-    // Tooltip element
+    // Tooltip and zoom display elements
     private tooltip: HTMLElement | null = null;
+    private zoomDisplay: HTMLElement | null = null;
     private raycaster: THREE.Raycaster = new THREE.Raycaster();
     private mouse: THREE.Vector2 = new THREE.Vector2();
 
@@ -85,6 +92,11 @@ export class RendererThreeJS {
         if (!this.scene) {
             this.initThreeJS(options);
         }
+        
+        // Create zoom display if not exists
+        if (!this.zoomDisplay) {
+            this.createZoomDisplay();
+        }
 
         // Handle error case
         if (!result.success) {
@@ -94,6 +106,12 @@ export class RendererThreeJS {
 
         // Clear previous geometry
         this.clearGeometry();
+        
+        // Reset ranges and resolutions for new graph
+        this.maxRange2D = 0;
+        this.lastResolution2D = 0;
+        this.maxRange3D = 0;
+        this.lastResolution3D = 0;
 
         // Render based on mode
         if (this.mode === '2d') {
@@ -560,33 +578,43 @@ export class RendererThreeJS {
             const xMin = camera.left;
             const xMax = camera.right;
 
-            // Calculate zoom level and check threshold
+            // Calculate current range and required resolution
             const range = xMax - xMin;
-            const zoomLevel = 20 / range; // 20 is initial frustum size
-            const zoomChange = this.lastZoomLevel > 0 ? Math.abs(zoomLevel - this.lastZoomLevel) / this.lastZoomLevel : 1;
-
-            // Only recalculate if zoom changed significantly (>15% to reduce WASM calls)
-            if (zoomChange < 0.15 && this.lastZoomLevel > 0) {
+            const resolution = Math.min(800, Math.max(200, Math.floor(500 / Math.log10(range + 1))));
+            
+            // Recalculate if:
+            // 1. Zoomed OUT past our data (range > maxRange), OR
+            // 2. Zoomed IN and need higher detail (resolution > lastResolution * 1.2)
+            const needsMoreRange = range > this.maxRange2D;
+            const needsHigherDetail = resolution > this.lastResolution2D * 1.2;
+            
+            if (!needsMoreRange && !needsHigherDetail && this.maxRange2D > 0) {
                 this.isRecalculating = false;
                 return;
             }
-
-            this.lastZoomLevel = zoomLevel;
+            
+            // Update tracking
+            if (range > this.maxRange2D) this.maxRange2D = range;
+            this.lastResolution2D = resolution;
+            
+            const zoomLevel = 20 / range; // For logging
+            const zoomPercent = (zoomLevel * 100).toFixed(0);
 
             // Expand slightly for smooth edges
             const padding = range * 0.1;
             const adjustedXMin = xMin - padding;
             const adjustedXMax = xMax + padding;
-
-            // Adaptive resolution based on zoom
-            const resolution = Math.min(800, Math.max(200, Math.floor(500 / Math.log10(range + 1))));
             
             console.log('2D Dynamic recalculation:', { 
                 xMin: adjustedXMin.toFixed(2), 
                 xMax: adjustedXMax.toFixed(2), 
-                resolution, 
-                zoomLevel: zoomLevel.toFixed(2) 
+                resolution,
+                zoom: zoomPercent + '%',
+                reason: needsMoreRange ? 'range' : 'detail'
             });
+            
+            // Update zoom display
+            this.updateZoomDisplay(zoomPercent);
 
             // Recalculate
             const wasmResult = this.wasmModule.calculate2D(this.equation, adjustedXMin, adjustedXMax, resolution);
@@ -653,37 +681,45 @@ export class RendererThreeJS {
             const target = this.controls.target;
             const distance = this.camera!.position.distanceTo(target);
 
-            // Calculate zoom level and check threshold
-            const zoomLevel = 30 / distance; // 30 is initial distance
-            const zoomChange = this.lastZoomLevel > 0 ? Math.abs(zoomLevel - this.lastZoomLevel) / this.lastZoomLevel : 1;
-
-            // Only recalculate if zoom changed significantly (>25% for 3D - more expensive)
-            if (zoomChange < 0.25 && this.lastZoomLevel > 0) {
+            // Calculate visible range and required resolution
+            const baseRange = distance * 0.5;
+            const resolution = Math.min(100, Math.max(30, Math.floor(80 / Math.log10(baseRange + 1))));
+            
+            // Recalculate if:
+            // 1. Zoomed OUT past our data (baseRange > maxRange), OR
+            // 2. Zoomed IN and need higher detail (resolution > lastResolution * 1.2)
+            const needsMoreRange = baseRange > this.maxRange3D;
+            const needsHigherDetail = resolution > this.lastResolution3D * 1.2;
+            
+            if (!needsMoreRange && !needsHigherDetail && this.maxRange3D > 0) {
                 this.isRecalculating = false;
                 return;
             }
-
-            this.lastZoomLevel = zoomLevel;
-
-            // Calculate visible range based on camera distance and target
-            const baseRange = distance * 0.5; // Adjust multiplier as needed
+            
+            // Update tracking
+            if (baseRange > this.maxRange3D) this.maxRange3D = baseRange;
+            this.lastResolution3D = resolution;
+            
+            const zoomLevel = 30 / distance;
+            const zoomPercent = (zoomLevel * 100).toFixed(0);
+            
             const xMin = target.x - baseRange;
             const xMax = target.x + baseRange;
             const yMin = target.z - baseRange; // Remember: Y and Z are swapped
             const yMax = target.z + baseRange;
-
-            // Adaptive resolution - lower resolution when zoomed out
-            const resolution = Math.min(100, Math.max(30, Math.floor(80 / Math.log10(baseRange + 1))));
             
             console.log('3D Dynamic recalculation:', { 
                 xMin: xMin.toFixed(2), 
                 xMax: xMax.toFixed(2), 
                 yMin: yMin.toFixed(2), 
                 yMax: yMax.toFixed(2), 
-                resolution, 
-                distance: distance.toFixed(2),
-                zoomLevel: zoomLevel.toFixed(2) 
+                resolution,
+                zoom: zoomPercent + '%',
+                reason: needsMoreRange ? 'range' : 'detail'
             });
+            
+            // Update zoom display
+            this.updateZoomDisplay(zoomPercent);
 
             // Recalculate
             const wasmResult = this.wasmModule.calculate3D(
@@ -791,6 +827,49 @@ export class RendererThreeJS {
     }
 
 
+
+    /**
+     * Create zoom percentage display
+     */
+    private createZoomDisplay(): void {
+        const colors = this.themeManager.getColors();
+        this.zoomDisplay = document.createElement('div');
+        this.zoomDisplay.addClass('math-graph-zoom-display');
+        this.zoomDisplay.style.cssText = `
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 6px 12px;
+            background: ${colors.backgroundPrimary};
+            color: ${colors.textNormal};
+            border: 1px solid ${colors.interactiveAccent};
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.2s;
+        `;
+        this.container.appendChild(this.zoomDisplay);
+    }
+
+    /**
+     * Update zoom display
+     */
+    private updateZoomDisplay(zoomPercent: string): void {
+        if (this.zoomDisplay) {
+            this.zoomDisplay.textContent = `Zoom: ${zoomPercent}%`;
+            this.zoomDisplay.style.opacity = '0.9';
+            
+            // Fade out after 2 seconds
+            setTimeout(() => {
+                if (this.zoomDisplay) {
+                    this.zoomDisplay.style.opacity = '0';
+                }
+            }, 2000);
+        }
+    }
 
     /**
      * Create tooltip element
@@ -979,6 +1058,14 @@ export class RendererThreeJS {
             clearTimeout(this.recalculationDebounce);
             this.recalculationDebounce = null;
         }
+
+        // Remove zoom display
+        if (this.zoomDisplay) {
+            this.zoomDisplay.remove();
+            this.zoomDisplay = null;
+        }
+
+
 
         // Clear geometry
         this.clearGeometry();
