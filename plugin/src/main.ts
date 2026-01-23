@@ -1,14 +1,14 @@
 import { Plugin, MarkdownPostProcessorContext, Notice } from 'obsidian';
 import { WasmLoader } from './wasm/loader';
 import { ThemeManager } from './rendering/theme-manager';
-import { RendererThreeJS } from './rendering/renderer-threejs';
+import { RendererPlotly } from './rendering/renderer-plotly';
 import { EquationAnalyzer } from './utils/equation-analyzer';
 import type { GraphConfig, MathEngineModule, Point, InterestingPoint, GraphResult } from './types';
 
 export default class MathGraphPlugin extends Plugin {
 	private wasmModule: MathEngineModule | null = null;
 	private themeManager: ThemeManager;
-	private activeRenderers: Set<RendererThreeJS> = new Set();
+	private activeRenderers: Set<RendererPlotly> = new Set();
 
 	async onload() {
 		console.log('Loading Math Graph Plugin...');
@@ -374,8 +374,8 @@ export default class MathGraphPlugin extends Plugin {
 			errorMessage: wasmResult.errorMessage
 		};
 
-		// Create unified Three.js renderer with WASM for dynamic recalculation
-		const renderer = new RendererThreeJS(container, this.wasmModule);
+		// Create unified Plotly renderer with WASM for dynamic recalculation
+		const renderer = new RendererPlotly(container, this.wasmModule);
 		
 		// Track active renderer
 		this.activeRenderers.add(renderer);
@@ -451,8 +451,8 @@ export default class MathGraphPlugin extends Plugin {
 			errorMessage: wasmResult.errorMessage
 		};
 
-		// Create unified Three.js renderer
-		const renderer = new RendererThreeJS(container, this.wasmModule);
+		// Create unified Plotly renderer
+		const renderer = new RendererPlotly(container, this.wasmModule);
 		
 		// Track active renderer
 		this.activeRenderers.add(renderer);
