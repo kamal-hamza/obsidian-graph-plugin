@@ -1,0 +1,32 @@
+{
+  "name": "three-graph-renderer",
+  "version": "1.0.0",
+  "description": "High-performance Three.js graph renderer for Obsidian",
+  "main": "dist/three-graph-renderer.umd.js",
+  "module": "dist/three-graph-renderer.es.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "build:engine": "./scripts/build-engine.sh",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "three.js",
+    "graph",
+    "renderer",
+    "obsidian"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.182.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "@types/three": "^0.182.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vite-plugin-dts": "^4.5.4"
+  }
+}
