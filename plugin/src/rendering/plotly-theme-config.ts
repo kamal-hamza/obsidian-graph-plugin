@@ -16,20 +16,21 @@ export class PlotlyThemeConfig {
 
     /**
      * Generate a theme-aware colorscale for 3D surfaces
-     * Uses a monochrome gradient based on accent color with varying opacity
+     * Uses a monochrome gradient from dark purple to light purple
      * Uses "clustering stops" technique for better contrast and depth
      */
     public generateColorscale(): Array<[number, string]> {
         const colors = this.themeManager.getColors();
         
-        // Use the resolved accent color to build a monochrome gradient
-        const base = colors.interactiveAccent;
+        // Convert accent color to hex for color manipulation
+        const baseHex = this.colorToHex(colors.interactiveAccent);
         
+        // Create gradient from dark to light purple
         return [
-            [0.0, this.themeManager.resolveToRGBA(base, 0.2)], // Faint base
-            [0.3, this.themeManager.resolveToRGBA(base, 0.5)], // Mid-point
-            [0.7, this.themeManager.resolveToRGBA(base, 0.8)], // High-point
-            [1.0, this.themeManager.resolveToRGBA(base, 1.0)]  // Sharp peak
+            [0.0, this.darkenColor(baseHex, 0.6)],  // Dark purple at bottom
+            [0.3, this.darkenColor(baseHex, 0.3)],  // Medium-dark purple
+            [0.7, baseHex],                          // Original accent purple
+            [1.0, this.lightenColor(baseHex, 0.4)]  // Light purple at peak
         ];
     }
 
