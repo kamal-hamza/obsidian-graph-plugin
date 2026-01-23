@@ -17,6 +17,7 @@ export class PlotlyThemeConfig {
     /**
      * Generate a theme-aware colorscale for 3D surfaces
      * Uses a monochrome gradient based on accent color with varying opacity
+     * Uses "clustering stops" technique for better contrast and depth
      */
     public generateColorscale(): Array<[number, string]> {
         const colors = this.themeManager.getColors();
@@ -25,11 +26,10 @@ export class PlotlyThemeConfig {
         const base = colors.interactiveAccent;
         
         return [
-            [0, this.themeManager.resolveToRGBA(base, 0.2)],   // Faint at bottom
-            [0.2, this.themeManager.resolveToRGBA(base, 0.4)],
-            [0.5, this.themeManager.resolveToRGBA(base, 0.7)],
-            [0.8, this.themeManager.resolveToRGBA(base, 0.9)],
-            [1, this.themeManager.resolveToRGBA(base, 1.0)]    // Full opaque at top
+            [0.0, this.themeManager.resolveToRGBA(base, 0.2)], // Faint base
+            [0.3, this.themeManager.resolveToRGBA(base, 0.5)], // Mid-point
+            [0.7, this.themeManager.resolveToRGBA(base, 0.8)], // High-point
+            [1.0, this.themeManager.resolveToRGBA(base, 1.0)]  // Sharp peak
         ];
     }
 
@@ -146,6 +146,7 @@ export class PlotlyThemeConfig {
                     tickfont: {
                         color: colors.textMuted,
                     },
+                    showspikes: false, // Disable spikes to reduce clutter
                 },
                 yaxis: {
                     title: {
@@ -162,6 +163,7 @@ export class PlotlyThemeConfig {
                     tickfont: {
                         color: colors.textMuted,
                     },
+                    showspikes: false, // Disable spikes to reduce clutter
                 },
                 zaxis: {
                     title: {
@@ -178,6 +180,7 @@ export class PlotlyThemeConfig {
                     tickfont: {
                         color: colors.textMuted,
                     },
+                    showspikes: false, // Disable spikes to reduce clutter
                 },
                 bgcolor: 'rgba(0,0,0,0)',
             },
@@ -226,9 +229,9 @@ export class PlotlyThemeConfig {
 
     /**
      * Apply theme styling to a 3D surface trace with proper colorscale
-     * CRITICAL: autocolorscale is disabled to prevent Plotly defaults
+     * CRITICAL: autocolorscale is disabled and cmin/cmax are set to prevent Plotly defaults
      */
-    public style3DSurfaceTrace(trace: Partial<PlotData>, equation?: string): Partial<PlotData> {
+    public style3DSurfaceTrace(trace: Partial<PlotData>, zMin: number, zMax: number, equation?: string): Partial<PlotData> {
         const colors = this.themeManager.getColors();
         const colorscale = this.generateColorscale();
 
@@ -237,6 +240,8 @@ export class PlotlyThemeConfig {
             type: 'surface',
             colorscale: colorscale,
             autocolorscale: false, // CRITICAL: Prevent Plotly from overriding with default RdBu
+            cmin: zMin,            // Explicit normalization - prevents color shift on zoom
+            cmax: zMax,            // Explicit normalization - prevents color shift on zoom
             reversescale: false,
             showscale: true,
             colorbar: {

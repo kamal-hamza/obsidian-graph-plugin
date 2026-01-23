@@ -297,12 +297,17 @@ export class RendererPlotly {
             return;
         }
 
-        // Create surface trace with theme styling
+        // 1. Calculate the actual data range for cmin/cmax normalization
+        const allZ = gridData.z.flat();
+        const zMin = Math.min(...allZ);
+        const zMax = Math.max(...allZ);
+
+        // 2. Create surface trace with theme styling and explicit normalization
         const surfaceTrace = this.themeConfig.style3DSurfaceTrace({
             x: gridData.x,
             y: gridData.y,
             z: gridData.z,
-        }, this.equation);
+        }, zMin, zMax, this.equation);
 
         const traces: Partial<Plotly.PlotData>[] = [surfaceTrace];
 
@@ -312,7 +317,7 @@ export class RendererPlotly {
             traces.push(pointTrace);
         }
 
-        // Get themed 3D layout
+        // 3. Get themed 3D layout (spikes are already disabled in get3DLayout)
         const layout = this.themeConfig.get3DLayout(
             options.width,
             options.height,
@@ -325,6 +330,7 @@ export class RendererPlotly {
         const config = this.themeConfig.getPlotlyConfig();
 
         console.log('🎨 Rendering 3D plot with colorscale:', surfaceTrace.colorscale);
+        console.log('📊 Z-axis range: [', zMin, ',', zMax, '] - cmin/cmax set for normalization');
         
         // Render the plot
         Plotly.newPlot(this.plotDiv, traces, layout, config).then(() => {
@@ -708,12 +714,23 @@ export class RendererPlotly {
             const gridData = this.pathToGrid(path);
             
             if (gridData) {
-                // Update the plot data
+                // Calculate Z-axis range for proper normalization
+                const allZ = gridData.z.flat();
+                const zMin = Math.min(...allZ);
+                const zMax = Math.max(...allZ);
+
+                // Update the plot data with proper colorscale normalization
                 Plotly.restyle(this.plotDiv, {
                     x: [gridData.x],
                     y: [gridData.y],
                     z: [gridData.z],
-                }, [0]);
+                    colorscale: [this.themeConfig.generateColorscale()],
+                    autocolorscale: [false],
+                    cmin: [zMin],
+                    cmax: [zMax],
+                } as any, [0]);
+                
+                console.log('📊 Zoom/pan recalc: Z-range [', zMin, ',', zMax, ']');
             }
 
             // Update tracking variables
