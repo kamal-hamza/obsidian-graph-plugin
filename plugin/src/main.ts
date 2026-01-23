@@ -1,8 +1,7 @@
 import { Plugin, MarkdownPostProcessorContext, Notice } from 'obsidian';
 import { WasmLoader } from './wasm/loader';
 import { ThemeManager } from './rendering/theme-manager';
-import { Renderer2D } from './rendering/renderer-2d';
-import { Renderer3D } from './rendering/renderer-3d';
+import { RendererThreeJS } from './rendering/renderer-threejs';
 import { EquationAnalyzer } from './utils/equation-analyzer';
 import type { GraphConfig, MathEngineModule, Point, InterestingPoint, GraphResult } from './types';
 
@@ -316,7 +315,7 @@ export default class MathGraphPlugin extends Plugin {
 	}
 
 	/**
-	 * Render a 2D graph
+	 * Render a 2D graph using unified Three.js renderer
 	 */
 	private async render2DGraph(container: HTMLElement, config: GraphConfig): Promise<void> {
 		if (!this.wasmModule) {
@@ -332,7 +331,6 @@ export default class MathGraphPlugin extends Plugin {
 		);
 
 		// Immediately convert Embind vectors to plain JavaScript arrays
-		// This prevents memory issues from the WASM module cleaning up
 		const pathSize = wasmResult.path.size();
 		const pointsSize = wasmResult.points.size();
 		
@@ -354,34 +352,25 @@ export default class MathGraphPlugin extends Plugin {
 
 		// Create a plain JavaScript result object
 		const result: GraphResult = {
-			path: path as any, // Cast to satisfy type system
+			path: path as any,
 			points: points as any,
 			success: wasmResult.success,
 			errorMessage: wasmResult.errorMessage
 		};
 
-		// Debug: Log result details
-		console.log('WASM 2D Result:', {
-			success: result.success,
-			errorMessage: result.errorMessage,
-			pathSize: path.length,
-			pointsSize: points.length,
-			firstPoint: path.length > 0 ? path[0] : null,
-			lastPoint: path.length > 0 ? path[path.length - 1] : null
-		});
-
-		// Create renderer with WASM module for dynamic recalculation
-		const renderer = new Renderer2D(container, this.wasmModule);
+		// Create unified Three.js renderer with WASM for dynamic recalculation
+		const renderer = new RendererThreeJS(container, this.wasmModule);
 		renderer.render(result, {
 			width: config.width ?? 700,
 			height: config.height ?? 500,
 			showGrid: true,
-			showLegend: false,
+			showAxes: true,
+			mode: '2d',
 		}, config.equation);
 	}
 
 	/**
-	 * Render a 3D graph
+	 * Render a 3D graph using unified Three.js renderer
 	 */
 	private async render3DGraph(container: HTMLElement, config: GraphConfig): Promise<void> {
 		if (!this.wasmModule) {
@@ -399,7 +388,6 @@ export default class MathGraphPlugin extends Plugin {
 		);
 
 		// Immediately convert Embind vectors to plain JavaScript arrays
-		// This prevents memory issues from the WASM module cleaning up
 		const pathSize = wasmResult.path.size();
 		const pointsSize = wasmResult.points.size();
 		
@@ -421,21 +409,22 @@ export default class MathGraphPlugin extends Plugin {
 
 		// Create a plain JavaScript result object
 		const result: GraphResult = {
-			path: path as any, // Cast to satisfy type system
+			path: path as any,
 			points: points as any,
 			success: wasmResult.success,
 			errorMessage: wasmResult.errorMessage
 		};
 
-		// Create renderer and render
-		const renderer = new Renderer3D(container);
+		// Create unified Three.js renderer
+		const renderer = new RendererThreeJS(container, this.wasmModule);
 		renderer.render(result, {
 			width: config.width ?? 700,
 			height: config.height ?? 700,
-			wireframe: false,
-			showPoints: true,
+			showGrid: true,
 			showAxes: true,
-		}, config.resolution ?? 50);
+			wireframe: false,
+			mode: '3d',
+		}, config.equation);
 	}
 
 	/**
