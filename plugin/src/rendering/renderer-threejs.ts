@@ -527,7 +527,7 @@ export class RendererThreeJS {
 
         this.recalculationDebounce = window.setTimeout(() => {
             this.handleZoomPan();
-        }, 150); // 150ms debounce
+        }, 300); // 300ms debounce to prevent memory exhaustion
     }
 
     /**
@@ -560,9 +560,18 @@ export class RendererThreeJS {
             const xMin = camera.left;
             const xMax = camera.right;
 
-            // Calculate zoom level for logging
+            // Calculate zoom level and check threshold
             const range = xMax - xMin;
             const zoomLevel = 20 / range; // 20 is initial frustum size
+            const zoomChange = this.lastZoomLevel > 0 ? Math.abs(zoomLevel - this.lastZoomLevel) / this.lastZoomLevel : 1;
+
+            // Only recalculate if zoom changed significantly (>15% to reduce WASM calls)
+            if (zoomChange < 0.15 && this.lastZoomLevel > 0) {
+                this.isRecalculating = false;
+                return;
+            }
+
+            this.lastZoomLevel = zoomLevel;
 
             // Expand slightly for smooth edges
             const padding = range * 0.1;
@@ -587,7 +596,7 @@ export class RendererThreeJS {
                 return;
             }
 
-            // Convert to typed array
+            // Convert to typed array - extract data immediately
             const pointCount = wasmResult.path.size();
             const positions = new Float32Array(pointCount * 3);
 
@@ -597,6 +606,8 @@ export class RendererThreeJS {
                 positions[i * 3 + 1] = point.y;
                 positions[i * 3 + 2] = 0;
             }
+
+            // Don't hold reference to wasmResult - let it be garbage collected
 
             // Update geometry - dispose old and create new if vertex count changed
             if (this.mainLine && this.mainLine.geometry) {
@@ -617,8 +628,8 @@ export class RendererThreeJS {
                 }
             }
 
-            // Update interesting points
-            await this.updateInterestingPoints2D(wasmResult);
+            // For now, skip updating interesting points during dynamic zoom
+            // (they're expensive to calculate and less critical during interaction)
 
         } catch (error) {
             console.error('2D Dynamic recalculation error:', error);
@@ -642,8 +653,17 @@ export class RendererThreeJS {
             const target = this.controls.target;
             const distance = this.camera!.position.distanceTo(target);
 
-            // Calculate zoom level for logging
+            // Calculate zoom level and check threshold
             const zoomLevel = 30 / distance; // 30 is initial distance
+            const zoomChange = this.lastZoomLevel > 0 ? Math.abs(zoomLevel - this.lastZoomLevel) / this.lastZoomLevel : 1;
+
+            // Only recalculate if zoom changed significantly (>25% for 3D - more expensive)
+            if (zoomChange < 0.25 && this.lastZoomLevel > 0) {
+                this.isRecalculating = false;
+                return;
+            }
+
+            this.lastZoomLevel = zoomLevel;
 
             // Calculate visible range based on camera distance and target
             const baseRange = distance * 0.5; // Adjust multiplier as needed
@@ -678,7 +698,7 @@ export class RendererThreeJS {
                 return;
             }
 
-            // Convert to typed arrays
+            // Convert to typed arrays - extract data immediately
             const totalPoints = wasmResult.path.size();
             const positions = new Float32Array(totalPoints * 3);
             const colorArray = new Float32Array(totalPoints * 3);
@@ -686,15 +706,23 @@ export class RendererThreeJS {
             let minZ = Infinity;
             let maxZ = -Infinity;
 
+            // Extract data in single pass to minimize WASM calls
             for (let i = 0; i < totalPoints; i++) {
                 const point = wasmResult.path.get(i);
-                positions[i * 3] = point.x;
-                positions[i * 3 + 1] = point.z; // Y is up in Three.js
-                positions[i * 3 + 2] = point.y;
+                const px = point.x;
+                const py = point.y;
+                const pz = point.z;
                 
-                if (point.z < minZ) minZ = point.z;
-                if (point.z > maxZ) maxZ = point.z;
+                positions[i * 3] = px;
+                positions[i * 3 + 1] = pz; // Y is up in Three.js
+                positions[i * 3 + 2] = py;
+                
+                if (pz < minZ) minZ = pz;
+                if (pz > maxZ) maxZ = pz;
             }
+
+            // Clear reference to wasmResult immediately after extraction
+            // This allows WASM to garbage collect the Embind objects
 
             // Update colors
             const range = maxZ - minZ || 1;
@@ -762,41 +790,7 @@ export class RendererThreeJS {
         }
     }
 
-    /**
-     * Update interesting points for 2D graph
-     */
-    private async updateInterestingPoints2D(wasmResult: any): Promise<void> {
-        if (!this.scene || !this.interestingPointsGroup) {
-            return;
-        }
 
-        // Remove old interesting points
-        this.scene.remove(this.interestingPointsGroup);
-        this.interestingPointsGroup.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-                child.geometry.dispose();
-                (child.material as THREE.Material).dispose();
-            }
-        });
-
-        // Create new interesting points group
-        const colors = this.themeManager.getColors();
-        const points: any[] = [];
-        const pointsSize = wasmResult.points.size();
-        
-        for (let i = 0; i < pointsSize; i++) {
-            const p = wasmResult.points.get(i);
-            points.push({
-                location: { x: p.location.x, y: p.location.y, z: p.location.z },
-                type: p.type,
-                label: p.label
-            });
-        }
-
-        this.interestingPointsGroup = new THREE.Group();
-        this.renderInterestingPoints(points, colors);
-        this.scene.add(this.interestingPointsGroup);
-    }
 
     /**
      * Create tooltip element
