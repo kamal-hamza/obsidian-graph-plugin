@@ -2,32 +2,42 @@
 
 This document contains examples of how to use the Math Graph Plugin in Obsidian.
 
-## New Desmos-Style Features
+## Scientific-Grade Visualization with Plotly.js
 
-The plugin now includes professional graphing features:
+The plugin now uses Plotly.js, the industry-standard scientific graphing library:
 
 ### Dynamic Theme Integration
 - **Automatic Sync**: Graphs update immediately when you toggle Light/Dark mode
 - **Native Colors**: Uses Obsidian's `--background-primary`, `--text-normal`, and `--interactive-accent` variables
 - All colors adapt to your theme in real-time
 
-### Professional Axis Labels
-- **Adaptive Ticks**: Labels appear at logical intervals based on zoom level
-- **HTML Overlay**: Crisp, theme-aware labels using CSS2DRenderer
-- **Smart Formatting**: Decimal precision adjusts automatically with zoom
+### WebGL-Accelerated Rendering
+- **Hardware Acceleration**: Uses `scattergl` for 2D and `surface` for 3D
+- **Zero-Copy Performance**: Direct WASM-to-WebGL data transfer with typed arrays
+- **High Performance**: Smooth rendering with up to 100,000 points in 2D
 
-### Infinite Dynamic Grid
-- **Dual-Grid System**: Major grid for integers, minor grid for subdivisions
-- **Zoom-Responsive**: Grid scale updates automatically as you zoom in/out
-- **Visual Continuity**: Grids fade and adapt smoothly based on view range
+### Professional Features
+- **Native Tooltips**: Built-in hover information showing exact coordinates
+- **Adaptive Axes**: Automatic tick formatting and smart grid subdivision
+- **Interactive Controls**: Industry-standard pan, zoom, and rotate interactions
+- **Contour Projections**: Optional contour lines for 3D surfaces
 
 ### Enhanced Interactions
-- **Coordinate Crosshair**: Vertical and horizontal lines follow your mouse (2D mode)
-- **Scale Legend**: Shows current unit-to-pixel ratio in bottom-right corner
-- **Infinite Axes**: X and Y axes extend infinitely in 2D mode
+
+#### 2D Mode
+- **Pan**: Click and drag to pan
+- **Zoom**: Scroll to zoom in/out, or click-drag to select region
+- **Hover**: See precise coordinates on hover
+- **Reset**: Double-click to reset view
+
+#### 3D Mode
+- **Rotate**: Click and drag to rotate (orbital/turntable mode)
+- **Zoom**: Scroll to zoom in/out
+- **Pan**: Shift+drag or right-click drag
+- **Hover**: See x, y, z coordinates on hover
 
 ### Try It Yourself
-Pan with left-click drag, zoom with scroll wheel, and watch the grid and labels adapt in real-time!
+Interact with the graphs using native Plotly controls - they respond instantly to your theme changes!
 
 ## 2D Graph Examples
 
