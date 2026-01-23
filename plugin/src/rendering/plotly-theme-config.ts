@@ -35,7 +35,7 @@ export class PlotlyThemeConfig {
     }
 
     /**
-     * Get complete 2D layout configuration
+     * Get complete 2D layout configuration with gesture-based interaction
      */
     public get2DLayout(width: number, height: number, title?: string, showGrid: boolean = true): Partial<Layout> {
         const colors = this.themeManager.getColors();
@@ -58,6 +58,7 @@ export class PlotlyThemeConfig {
                 family: 'var(--font-interface)',
                 size: 12,
             },
+            dragmode: 'pan', // Default 2D mode: pan like a map
             xaxis: {
                 title: {
                     text: 'x',
@@ -108,7 +109,7 @@ export class PlotlyThemeConfig {
     }
 
     /**
-     * Get complete 3D layout configuration with proper colorscale defaults
+     * Get complete 3D layout configuration with gesture-based interaction
      */
     public get3DLayout(width: number, height: number, title?: string, showGrid: boolean = true, showLegend: boolean = false): Partial<Layout> {
         const colors = this.themeManager.getColors();
@@ -132,6 +133,7 @@ export class PlotlyThemeConfig {
                 size: 12,
             },
             scene: {
+                dragmode: 'orbit', // Default 3D mode: orbital rotation
                 xaxis: {
                     title: {
                         text: 'x',
@@ -308,14 +310,20 @@ export class PlotlyThemeConfig {
     }
 
     /**
-     * Get Plotly config with theme-aware settings
+     * Get Plotly config with theme-aware settings and gesture-based interactions
+     * Implements Three.js-style interaction model:
+     * - Scroll zoom enabled globally
+     * - Mode bar on hover for clean interface
+     * - Desktop: Drag to rotate/pan, Shift+Drag to pan (3D), Scroll to zoom
+     * - Mobile: 1-finger drag to rotate, 2-finger pinch to zoom, 2-finger drag to pan
      */
-    public getPlotlyConfig(): Partial<Config> {
+    public getPlotlyConfig(mode: '2d' | '3d' = '2d'): Partial<Config> {
         return {
             responsive: true,
-            displayModeBar: true,
+            displayModeBar: 'hover', // Clean interface - toolbar appears on hover/tap
             displaylogo: false,
             modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+            scrollZoom: true, // Enable scroll-based zoom for unified gesture control
         };
     }
 

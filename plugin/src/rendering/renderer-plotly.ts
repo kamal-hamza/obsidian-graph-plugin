@@ -132,11 +132,29 @@ export class RendererPlotly {
             // Context restored - user may need to refresh the note to see graphs again
         });
 
+        // Add interaction hint overlay
+        this.addInteractionHint();
+
         // Render based on mode
         if (this.mode === '2d') {
             this.render2D(result, options);
         } else {
             this.render3D(result, options);
+        }
+    }
+
+    /**
+     * Add persistent but subtle interaction hint for gesture-based controls
+     */
+    private addInteractionHint(): void {
+        if (!this.plotDiv) return;
+
+        const hint = this.plotDiv.createDiv({ cls: 'graph-interaction-hint' });
+        
+        if (this.mode === '3d') {
+            hint.setText('Desktop: Drag to Rotate, Shift+Drag to Pan | Mobile: 1-Finger Rotate, 2-Finger Pan');
+        } else {
+            hint.setText('Pinch or Scroll to Zoom • Drag to Pan');
         }
     }
 
@@ -261,13 +279,7 @@ export class RendererPlotly {
         };
 
         // Config for interactivity
-        const config: Partial<Plotly.Config> = {
-            responsive: true,
-            displayModeBar: true,
-            displaylogo: false,
-            modeBarButtonsToRemove: ['lasso2d', 'select2d'],
-            scrollZoom: true,
-        };
+        const config = this.themeConfig.getPlotlyConfig('2d');
 
         // Render the plot
         Plotly.newPlot(this.plotDiv, traces, layout, config).catch((err) => {
@@ -326,8 +338,8 @@ export class RendererPlotly {
             result.points.length > 0
         );
 
-        // Get config
-        const config = this.themeConfig.getPlotlyConfig();
+        // Get config with gesture-based interaction enabled
+        const config = this.themeConfig.getPlotlyConfig('3d');
 
         console.log('🎨 Rendering 3D plot with colorscale:', surfaceTrace.colorscale);
         console.log('📊 Z-axis range: [', zMin, ',', zMax, '] - cmin/cmax set for normalization');
