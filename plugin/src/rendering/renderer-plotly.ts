@@ -41,6 +41,78 @@ export class RendererPlotly {
     private maxRange3D: number = 0;
     private lastResolution3D: number = 0;
     
+    /**
+     * Generate a custom colorscale based on Obsidian theme colors
+     */
+    private generateThemeColorscale(): any[] {
+        const colors = this.themeManager.getColors();
+        
+        // Detect if we're in dark or light mode
+        const isDark = this.isDarkTheme();
+        
+        // Create adaptive colorscale based on theme mode
+        if (isDark) {
+            // Dark theme: use vibrant colors that pop on dark backgrounds
+            return [
+                [0, '#1e40af'],  // deep blue for low values
+                [0.2, '#3b82f6'], // bright blue
+                [0.4, colors.interactiveAccent], // theme accent at mid-low
+                [0.6, colors.interactiveAccentHover], // theme accent hover at mid-high
+                [0.8, '#f59e0b'], // amber for high values
+                [1, '#ef4444']   // red for maximum values
+            ];
+        } else {
+            // Light theme: use slightly muted colors that work on light backgrounds
+            return [
+                [0, '#3b82f6'],  // medium blue for low values
+                [0.2, '#6366f1'], // indigo
+                [0.4, colors.interactiveAccent], // theme accent at mid-low
+                [0.6, colors.interactiveAccentHover], // theme accent hover at mid-high
+                [0.8, '#f97316'], // orange for high values
+                [1, '#dc2626']   // darker red for maximum values
+            ];
+        }
+    }
+    
+    /**
+     * Detect if current theme is dark mode
+     */
+    private isDarkTheme(): boolean {
+        // Check if body has theme-dark class
+        if (document.body.classList.contains('theme-dark')) {
+            return true;
+        }
+        
+        // Fallback: check background color luminance
+        const bgColor = this.themeManager.getColors().backgroundPrimary;
+        const rgb = this.hexToRGB(bgColor);
+        
+        // Calculate relative luminance
+        const luminance = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+        
+        // If luminance is low, it's a dark theme
+        return luminance < 0.5;
+    }
+    
+    /**
+     * Convert hex color to RGB values (0-1 range)
+     */
+    private hexToRGB(hex: string): [number, number, number] {
+        // Remove # if present
+        hex = hex.replace('#', '');
+        
+        // Handle 3-digit hex
+        if (hex.length === 3) {
+            hex = hex.split('').map(char => char + char).join('');
+        }
+        
+        const r = parseInt(hex.substring(0, 2), 16) / 255;
+        const g = parseInt(hex.substring(2, 4), 16) / 255;
+        const b = parseInt(hex.substring(4, 6), 16) / 255;
+        
+        return [r, g, b];
+    }
+    
     constructor(container: HTMLElement, wasmModule?: MathEngineModule) {
         this.container = container;
         this.themeManager = ThemeManager.getInstance();
@@ -229,13 +301,13 @@ export class RendererPlotly {
             return;
         }
 
-        // Main surface trace
+        // Main surface trace with theme-based colorscale
         const surfaceTrace: Partial<Plotly.PlotData> = {
             x: gridData.x,
             y: gridData.y,
             z: gridData.z,
             type: 'surface',
-            colorscale: 'Viridis',
+            colorscale: this.generateThemeColorscale(),
             showscale: true,
             colorbar: {
                 title: {
@@ -893,6 +965,13 @@ export class RendererPlotly {
             traceUpdate['colorbar.tickfont.color'] = colors.textMuted;
             traceUpdate['colorbar.outlinecolor'] = colors.borderColor;
             traceUpdate['colorbar.bgcolor'] = colors.backgroundSecondary;
+        }
+
+        // For 3D mode, update the colorscale to match theme
+        if (this.mode === '3d') {
+            Plotly.restyle(this.plotDiv, {
+                colorscale: this.generateThemeColorscale()
+            }, [0]);
         }
 
         Plotly.restyle(this.plotDiv, traceUpdate, [0]);
