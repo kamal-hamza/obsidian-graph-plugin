@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { GraphResult, InterestingPoint, ResultType, MathEngineModule } from '../types';
 import { ThemeManager } from './theme-manager';
 
@@ -34,6 +35,7 @@ export class RendererThreeJS {
     private scene: THREE.Scene | null = null;
     private camera: THREE.Camera | null = null;
     private renderer: THREE.WebGLRenderer | null = null;
+    private labelRenderer: CSS2DRenderer | null = null;
     private controls: OrbitControls | null = null;
     
     // Geometry and materials (reused, never recreated per frame)
@@ -42,7 +44,15 @@ export class RendererThreeJS {
     private mainPoints: THREE.Points | null = null;
     private axesHelper: THREE.AxesHelper | null = null;
     private gridHelper: THREE.GridHelper | null = null;
+    private majorGrid: THREE.GridHelper | null = null;
+    private minorGrid: THREE.GridHelper | null = null;
     private interestingPointsGroup: THREE.Group | null = null;
+    
+    // Enhanced interaction features
+    private crosshairVertical: THREE.Line | null = null;
+    private crosshairHorizontal: THREE.Line | null = null;
+    private scaleLegend: HTMLElement | null = null;
+    private axisLabelsGroup: THREE.Group | null = null;
     
     // For dynamic recalculation (Desmos-style)
     private wasmModule: MathEngineModule | null = null;
@@ -172,6 +182,15 @@ export class RendererThreeJS {
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.container.appendChild(this.renderer.domElement);
 
+        // Initialize CSS2DRenderer for axis labels
+        this.labelRenderer = new CSS2DRenderer();
+        this.labelRenderer.setSize(options.width, options.height);
+        this.labelRenderer.domElement.style.position = 'absolute';
+        this.labelRenderer.domElement.style.top = '0px';
+        this.labelRenderer.domElement.style.pointerEvents = 'none';
+        this.container.style.position = 'relative';
+        this.container.appendChild(this.labelRenderer.domElement);
+
         // Create controls
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
@@ -196,13 +215,26 @@ export class RendererThreeJS {
             this.scene.add(this.axesHelper);
         }
 
-        // Add grid helper if requested (3D only)
-        if (options.showGrid !== false && this.mode === '3d') {
-            this.gridHelper = new THREE.GridHelper(20, 20, colors.textFaint, colors.backgroundModifier);
-            (this.gridHelper.material as THREE.Material).transparent = true;
-            (this.gridHelper.material as THREE.Material).opacity = 0.3;
-            this.scene.add(this.gridHelper);
+        // Add grid helper if requested
+        if (options.showGrid !== false) {
+            if (this.mode === '3d') {
+                this.gridHelper = new THREE.GridHelper(20, 20, colors.textFaint, colors.backgroundModifier);
+                (this.gridHelper.material as THREE.Material).transparent = true;
+                (this.gridHelper.material as THREE.Material).opacity = 0.3;
+                this.scene.add(this.gridHelper);
+            } else {
+                // 2D mode: Create dual-grid system (major and minor)
+                this.createDualGrid();
+            }
         }
+        
+        // Create crosshair for 2D mode
+        if (this.mode === '2d') {
+            this.createCrosshair();
+        }
+        
+        // Create axis labels
+        this.createAxisLabels();
 
         // Add lighting for 3D
         if (this.mode === '3d') {
@@ -216,6 +248,9 @@ export class RendererThreeJS {
 
         // Create tooltip
         this.createTooltip();
+        
+        // Create scale legend
+        this.createScaleLegend();
 
         // Setup event listeners
         this.setupEventListeners();
@@ -533,6 +568,16 @@ export class RendererThreeJS {
         if (this.renderer && this.scene && this.camera) {
             this.renderer.render(this.scene, this.camera);
         }
+        
+        // Render CSS2D labels
+        if (this.labelRenderer && this.scene && this.camera) {
+            this.labelRenderer.render(this.scene, this.camera);
+        }
+        
+        // Update scale legend periodically
+        if (this.mode === '2d') {
+            this.updateScaleLegend();
+        }
     }
 
     /**
@@ -552,6 +597,11 @@ export class RendererThreeJS {
      * Handle zoom/pan for dynamic recalculation (Desmos-style for both 2D and 3D)
      */
     private async handleZoomPan(): Promise<void> {
+        // Update dual grid for 2D mode
+        if (this.mode === '2d') {
+            this.updateDualGrid();
+            this.updateAxisLabels();
+        }
         if (this.isRecalculating || !this.wasmModule || !this.equation || !this.camera) {
             return;
         }
@@ -914,6 +964,220 @@ export class RendererThreeJS {
     /**
      * Create zoom percentage display
      */
+    /**
+     * Create dual-grid system for 2D mode
+     */
+    private createDualGrid(): void {
+        const colors = this.themeManager.getObsidianColors();
+        
+        // Major grid (for integers)
+        const majorSize = 20;
+        const majorDivisions = 20;
+        this.majorGrid = new THREE.GridHelper(majorSize, majorDivisions, colors.grid, colors.grid);
+        this.majorGrid.rotation.x = Math.PI / 2; // Rotate to XY plane for 2D
+        (this.majorGrid.material as THREE.LineBasicMaterial).transparent = true;
+        (this.majorGrid.material as THREE.LineBasicMaterial).opacity = 0.5;
+        this.scene!.add(this.majorGrid);
+        
+        // Minor grid (for decimals)
+        const minorSize = 20;
+        const minorDivisions = 100;
+        this.minorGrid = new THREE.GridHelper(minorSize, minorDivisions, colors.faint, colors.faint);
+        this.minorGrid.rotation.x = Math.PI / 2; // Rotate to XY plane for 2D
+        (this.minorGrid.material as THREE.LineBasicMaterial).transparent = true;
+        (this.minorGrid.material as THREE.LineBasicMaterial).opacity = 0.15;
+        this.scene!.add(this.minorGrid);
+    }
+    
+    /**
+     * Update dual-grid based on zoom level
+     */
+    private updateDualGrid(): void {
+        if (!this.camera || !this.majorGrid || !this.minorGrid) return;
+        if (this.mode !== '2d') return;
+        
+        const orthoCamera = this.camera as THREE.OrthographicCamera;
+        const currentRange = orthoCamera.right - orthoCamera.left;
+        
+        // Calculate appropriate step sizes based on visible range
+        const logRange = Math.floor(Math.log10(currentRange));
+        const majorStep = Math.pow(10, logRange);
+        const minorStep = majorStep / 5;
+        
+        // Update grid sizes and divisions
+        const viewSize = currentRange * 1.5; // Show grid slightly beyond view
+        const majorDivisions = Math.ceil(viewSize / majorStep);
+        const minorDivisions = Math.ceil(viewSize / minorStep);
+        
+        // Remove old grids
+        this.scene!.remove(this.majorGrid);
+        this.scene!.remove(this.minorGrid);
+        
+        // Create new grids with updated parameters
+        const colors = this.themeManager.getObsidianColors();
+        
+        this.majorGrid = new THREE.GridHelper(viewSize, majorDivisions, colors.grid, colors.grid);
+        this.majorGrid.rotation.x = Math.PI / 2;
+        (this.majorGrid.material as THREE.LineBasicMaterial).transparent = true;
+        (this.majorGrid.material as THREE.LineBasicMaterial).opacity = 0.5;
+        this.scene!.add(this.majorGrid);
+        
+        this.minorGrid = new THREE.GridHelper(viewSize, minorDivisions, colors.faint, colors.faint);
+        this.minorGrid.rotation.x = Math.PI / 2;
+        (this.minorGrid.material as THREE.LineBasicMaterial).transparent = true;
+        (this.minorGrid.material as THREE.LineBasicMaterial).opacity = 0.15;
+        this.scene!.add(this.minorGrid);
+    }
+    
+    /**
+     * Create crosshair for coordinate tracking
+     */
+    private createCrosshair(): void {
+        const colors = this.themeManager.getObsidianColors();
+        const material = new THREE.LineBasicMaterial({
+            color: colors.accent,
+            transparent: true,
+            opacity: 0.3,
+        });
+        
+        // Vertical line
+        const verticalGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, -1000, 0),
+            new THREE.Vector3(0, 1000, 0)
+        ]);
+        this.crosshairVertical = new THREE.Line(verticalGeometry, material);
+        this.crosshairVertical.visible = false;
+        this.scene!.add(this.crosshairVertical);
+        
+        // Horizontal line
+        const horizontalGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(-1000, 0, 0),
+            new THREE.Vector3(1000, 0, 0)
+        ]);
+        this.crosshairHorizontal = new THREE.Line(horizontalGeometry, material);
+        this.crosshairHorizontal.visible = false;
+        this.scene!.add(this.crosshairHorizontal);
+    }
+    
+    /**
+     * Create axis labels using CSS2D
+     */
+    private createAxisLabels(): void {
+        this.axisLabelsGroup = new THREE.Group();
+        this.scene!.add(this.axisLabelsGroup);
+        this.updateAxisLabels();
+    }
+    
+    /**
+     * Update axis labels based on current view
+     */
+    private updateAxisLabels(): void {
+        if (!this.camera || !this.axisLabelsGroup) return;
+        
+        // Clear existing labels
+        while (this.axisLabelsGroup.children.length > 0) {
+            const child = this.axisLabelsGroup.children[0];
+            if ((child as any).element) {
+                ((child as any).element as HTMLElement).remove();
+            }
+            this.axisLabelsGroup.remove(child);
+        }
+        
+        const colors = this.themeManager.getObsidianColors();
+        
+        if (this.mode === '2d') {
+            const orthoCamera = this.camera as THREE.OrthographicCamera;
+            const xMin = orthoCamera.left;
+            const xMax = orthoCamera.right;
+            const yMin = orthoCamera.bottom;
+            const yMax = orthoCamera.top;
+            
+            // Calculate appropriate tick interval
+            const xRange = xMax - xMin;
+            const logRange = Math.floor(Math.log10(xRange));
+            const tickInterval = Math.pow(10, logRange) / 2;
+            
+            // Create X-axis labels
+            for (let x = Math.ceil(xMin / tickInterval) * tickInterval; x <= xMax; x += tickInterval) {
+                if (Math.abs(x) < tickInterval / 10) continue; // Skip zero
+                
+                const labelDiv = document.createElement('div');
+                labelDiv.style.color = colors.text;
+                labelDiv.style.fontSize = '11px';
+                labelDiv.style.fontFamily = 'var(--font-monospace)';
+                labelDiv.style.padding = '2px 4px';
+                labelDiv.style.backgroundColor = colors.background;
+                labelDiv.style.border = `1px solid ${colors.grid}`;
+                labelDiv.style.borderRadius = '3px';
+                labelDiv.textContent = x.toFixed(Math.max(0, -logRange));
+                
+                const label = new CSS2DObject(labelDiv);
+                label.position.set(x, 0, 0);
+                this.axisLabelsGroup.add(label);
+            }
+            
+            // Create Y-axis labels
+            for (let y = Math.ceil(yMin / tickInterval) * tickInterval; y <= yMax; y += tickInterval) {
+                if (Math.abs(y) < tickInterval / 10) continue; // Skip zero
+                
+                const labelDiv = document.createElement('div');
+                labelDiv.style.color = colors.text;
+                labelDiv.style.fontSize = '11px';
+                labelDiv.style.fontFamily = 'var(--font-monospace)';
+                labelDiv.style.padding = '2px 4px';
+                labelDiv.style.backgroundColor = colors.background;
+                labelDiv.style.border = `1px solid ${colors.grid}`;
+                labelDiv.style.borderRadius = '3px';
+                labelDiv.textContent = y.toFixed(Math.max(0, -logRange));
+                
+                const label = new CSS2DObject(labelDiv);
+                label.position.set(0, y, 0);
+                this.axisLabelsGroup.add(label);
+            }
+        }
+    }
+    
+    /**
+     * Create scale legend showing unit distance
+     */
+    private createScaleLegend(): void {
+        const colors = this.themeManager.getObsidianColors();
+        
+        this.scaleLegend = document.createElement('div');
+        this.scaleLegend.style.position = 'absolute';
+        this.scaleLegend.style.bottom = '10px';
+        this.scaleLegend.style.right = '10px';
+        this.scaleLegend.style.padding = '5px 10px';
+        this.scaleLegend.style.backgroundColor = colors.background;
+        this.scaleLegend.style.border = `1px solid ${colors.grid}`;
+        this.scaleLegend.style.borderRadius = '4px';
+        this.scaleLegend.style.fontFamily = 'var(--font-monospace)';
+        this.scaleLegend.style.fontSize = '11px';
+        this.scaleLegend.style.color = colors.text;
+        this.scaleLegend.style.pointerEvents = 'none';
+        this.scaleLegend.style.opacity = '0.8';
+        
+        this.container.appendChild(this.scaleLegend);
+        this.updateScaleLegend();
+    }
+    
+    /**
+     * Update scale legend with current unit-to-pixel ratio
+     */
+    private updateScaleLegend(): void {
+        if (!this.scaleLegend || !this.camera || !this.renderer) return;
+        
+        if (this.mode === '2d') {
+            const orthoCamera = this.camera as THREE.OrthographicCamera;
+            const frustumWidth = orthoCamera.right - orthoCamera.left;
+            const pixelWidth = this.renderer.domElement.width / window.devicePixelRatio;
+            const unitsPerPixel = frustumWidth / pixelWidth;
+            const pixelsPerUnit = 1 / unitsPerPixel;
+            
+            this.scaleLegend.textContent = `1 unit ≈ ${pixelsPerUnit.toFixed(1)}px`;
+        }
+    }
+
     private createZoomDisplay(): void {
         const colors = this.themeManager.getColors();
         this.zoomDisplay = document.createElement('div');
@@ -994,7 +1258,7 @@ export class RendererThreeJS {
     }
 
     /**
-     * Handle mouse move for interactive tooltips
+     * Handle mouse move for interactive tooltips and crosshair
      */
     private onMouseMove(event: MouseEvent): void {
         if (!this.camera || !this.scene || !this.tooltip || !this.renderer) return;
@@ -1002,6 +1266,26 @@ export class RendererThreeJS {
         const rect = this.renderer.domElement.getBoundingClientRect();
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        // Update crosshair position in 2D mode
+        if (this.mode === '2d' && this.crosshairVertical && this.crosshairHorizontal && this.camera) {
+            // Convert mouse position to world coordinates
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(this.mouse, this.camera);
+            
+            // For orthographic camera, calculate intersection with z=0 plane
+            const orthoCamera = this.camera as THREE.OrthographicCamera;
+            const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+            const worldPos = new THREE.Vector3();
+            raycaster.ray.intersectPlane(plane, worldPos);
+            
+            if (worldPos) {
+                this.crosshairVertical.position.x = worldPos.x;
+                this.crosshairHorizontal.position.y = worldPos.y;
+                this.crosshairVertical.visible = true;
+                this.crosshairHorizontal.visible = true;
+            }
+        }
 
         // Raycast only interesting points (selective raycasting)
         if (this.interestingPointsGroup) {
@@ -1063,6 +1347,11 @@ export class RendererThreeJS {
         }
 
         this.renderer.setSize(width, height);
+        
+        // Also resize label renderer
+        if (this.labelRenderer) {
+            this.labelRenderer.setSize(width, height);
+        }
     }
 
     /**
@@ -1148,7 +1437,11 @@ export class RendererThreeJS {
             this.zoomDisplay = null;
         }
 
-
+        // Remove scale legend
+        if (this.scaleLegend) {
+            this.scaleLegend.remove();
+            this.scaleLegend = null;
+        }
 
         // Clear geometry
         this.clearGeometry();
@@ -1160,9 +1453,51 @@ export class RendererThreeJS {
         }
 
         if (this.gridHelper) {
-            (this.gridHelper.material as THREE.Material).dispose();
             this.scene!.remove(this.gridHelper);
             this.gridHelper = null;
+        }
+
+        // Dispose of dual grids
+        if (this.majorGrid) {
+            this.scene!.remove(this.majorGrid);
+            (this.majorGrid.material as THREE.Material).dispose();
+            this.majorGrid.geometry.dispose();
+            this.majorGrid = null;
+        }
+
+        if (this.minorGrid) {
+            this.scene!.remove(this.minorGrid);
+            (this.minorGrid.material as THREE.Material).dispose();
+            this.minorGrid.geometry.dispose();
+            this.minorGrid = null;
+        }
+
+        // Dispose of crosshair
+        if (this.crosshairVertical) {
+            this.scene!.remove(this.crosshairVertical);
+            this.crosshairVertical.geometry.dispose();
+            (this.crosshairVertical.material as THREE.Material).dispose();
+            this.crosshairVertical = null;
+        }
+
+        if (this.crosshairHorizontal) {
+            this.scene!.remove(this.crosshairHorizontal);
+            this.crosshairHorizontal.geometry.dispose();
+            (this.crosshairHorizontal.material as THREE.Material).dispose();
+            this.crosshairHorizontal = null;
+        }
+
+        // Dispose of axis labels
+        if (this.axisLabelsGroup) {
+            while (this.axisLabelsGroup.children.length > 0) {
+                const child = this.axisLabelsGroup.children[0];
+                if ((child as any).element) {
+                    ((child as any).element as HTMLElement).remove();
+                }
+                this.axisLabelsGroup.remove(child);
+            }
+            this.scene!.remove(this.axisLabelsGroup);
+            this.axisLabelsGroup = null;
         }
 
         // Dispose controls
@@ -1176,6 +1511,12 @@ export class RendererThreeJS {
             this.renderer.dispose();
             this.renderer.domElement.remove();
             this.renderer = null;
+        }
+
+        // Dispose label renderer
+        if (this.labelRenderer) {
+            this.labelRenderer.domElement.remove();
+            this.labelRenderer = null;
         }
 
         // Clear scene
@@ -1192,6 +1533,67 @@ export class RendererThreeJS {
 
         // Clear container
         this.container.empty();
+    }
+
+    /**
+     * Update theme colors dynamically when Obsidian theme changes
+     */
+    public updateTheme(): void {
+        if (!this.scene || !this.renderer) return;
+        
+        // Refresh theme colors
+        this.themeManager.refreshColors();
+        const colors = this.themeManager.getObsidianColors();
+        
+        // Update scene background
+        this.scene.background = new THREE.Color(colors.background);
+        
+        // Update grid colors
+        if (this.majorGrid && this.mode === '2d') {
+            this.updateDualGrid();
+        }
+        
+        if (this.gridHelper && this.mode === '3d') {
+            this.scene.remove(this.gridHelper);
+            this.gridHelper = new THREE.GridHelper(20, 20, colors.faint, colors.grid);
+            (this.gridHelper.material as THREE.Material).transparent = true;
+            (this.gridHelper.material as THREE.Material).opacity = 0.3;
+            this.scene.add(this.gridHelper);
+        }
+        
+        // Update crosshair colors
+        if (this.crosshairVertical && this.crosshairHorizontal) {
+            (this.crosshairVertical.material as THREE.LineBasicMaterial).color.setStyle(colors.accent);
+            (this.crosshairHorizontal.material as THREE.LineBasicMaterial).color.setStyle(colors.accent);
+        }
+        
+        // Update axis labels
+        if (this.mode === '2d') {
+            this.updateAxisLabels();
+        }
+        
+        // Update scale legend
+        if (this.scaleLegend) {
+            this.scaleLegend.style.backgroundColor = colors.background;
+            this.scaleLegend.style.borderColor = colors.grid;
+            this.scaleLegend.style.color = colors.text;
+        }
+        
+        // Update tooltip
+        if (this.tooltip) {
+            const themeColors = this.themeManager.getColors();
+            this.tooltip.style.background = themeColors.backgroundSecondary;
+            this.tooltip.style.borderColor = themeColors.borderColor;
+            this.tooltip.style.color = themeColors.textNormal;
+        }
+        
+        // Update zoom display
+        if (this.zoomDisplay) {
+            const themeColors = this.themeManager.getColors();
+            this.zoomDisplay.style.backgroundColor = themeColors.backgroundSecondary;
+            this.zoomDisplay.style.borderColor = themeColors.borderColor;
+            this.zoomDisplay.style.color = themeColors.textNormal;
+        }
     }
 
     /**

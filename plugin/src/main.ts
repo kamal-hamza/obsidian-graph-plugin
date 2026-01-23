@@ -8,6 +8,7 @@ import type { GraphConfig, MathEngineModule, Point, InterestingPoint, GraphResul
 export default class MathGraphPlugin extends Plugin {
 	private wasmModule: MathEngineModule | null = null;
 	private themeManager: ThemeManager;
+	private activeRenderers: Set<RendererThreeJS> = new Set();
 
 	async onload() {
 		console.log('Loading Math Graph Plugin...');
@@ -19,7 +20,22 @@ export default class MathGraphPlugin extends Plugin {
 		// Setup theme listener to refresh when theme changes
 		this.themeManager.setupThemeListener(() => {
 			console.log('Theme changed, colors refreshed');
+			// Update all active renderers
+			this.activeRenderers.forEach(renderer => {
+				renderer.updateTheme();
+			});
 		});
+		
+		// Listen for Obsidian's css-change event for immediate theme updates
+		this.registerEvent(
+			this.app.workspace.on('css-change', () => {
+				console.log('CSS changed, updating renderer themes');
+				this.themeManager.refreshColors();
+				this.activeRenderers.forEach(renderer => {
+					renderer.updateTheme();
+				});
+			})
+		);
 
 		try {
 			// Initialize WASM module
@@ -360,6 +376,26 @@ export default class MathGraphPlugin extends Plugin {
 
 		// Create unified Three.js renderer with WASM for dynamic recalculation
 		const renderer = new RendererThreeJS(container, this.wasmModule);
+		
+		// Track active renderer
+		this.activeRenderers.add(renderer);
+		
+		// Setup cleanup when container is removed
+		const observer = new MutationObserver((mutations) => {
+			mutations.forEach((mutation) => {
+				mutation.removedNodes.forEach((node) => {
+					if (node === container || node.contains(container)) {
+						this.activeRenderers.delete(renderer);
+						renderer.destroy();
+						observer.disconnect();
+					}
+				});
+			});
+		});
+		if (container.parentElement) {
+			observer.observe(container.parentElement, { childList: true, subtree: true });
+		}
+		
 		renderer.render(result, {
 			width: config.width ?? 700,
 			height: config.height ?? 500,
@@ -417,6 +453,26 @@ export default class MathGraphPlugin extends Plugin {
 
 		// Create unified Three.js renderer
 		const renderer = new RendererThreeJS(container, this.wasmModule);
+		
+		// Track active renderer
+		this.activeRenderers.add(renderer);
+		
+		// Setup cleanup when container is removed
+		const observer = new MutationObserver((mutations) => {
+			mutations.forEach((mutation) => {
+				mutation.removedNodes.forEach((node) => {
+					if (node === container || node.contains(container)) {
+						this.activeRenderers.delete(renderer);
+						renderer.destroy();
+						observer.disconnect();
+					}
+				});
+			});
+		});
+		if (container.parentElement) {
+			observer.observe(container.parentElement, { childList: true, subtree: true });
+		}
+		
 		renderer.render(result, {
 			width: config.width ?? 700,
 			height: config.height ?? 700,
