@@ -29,6 +29,7 @@ export class RendererPlotly {
     private wasmModule: MathEngineModule | null = null;
     private equation: string = '';
     private currentOptions: RendererPlotlyOptions | null = null;
+    private lastResult: GraphResult | null = null; // Store for theme updates
     private mode: '2d' | '3d' = '2d';
     private isRecalculating: boolean = false;
     private lastZoomLevel: number = 1;
@@ -92,6 +93,9 @@ export class RendererPlotly {
      * Main render entry point
      */
     public render(result: GraphResult, options: RendererPlotlyOptions, equation?: string): void {
+        // Cache result for theme updates
+        this.lastResult = result;
+        
         // Clean up any existing plot first
         if (this.plotDiv) {
             try {
@@ -419,7 +423,7 @@ export class RendererPlotly {
                 type: 'scattergl',
                 mode: 'markers',
                 marker: {
-                    color: '#3b82f6',
+                    color: colors.info,
                     size: 10,
                     symbol: 'circle',
                 },
@@ -437,7 +441,7 @@ export class RendererPlotly {
                 type: 'scattergl',
                 mode: 'markers',
                 marker: {
-                    color: '#10b981',
+                    color: colors.success,
                     size: 10,
                     symbol: 'triangle-up',
                 },
@@ -455,7 +459,7 @@ export class RendererPlotly {
                 type: 'scattergl',
                 mode: 'markers',
                 marker: {
-                    color: '#ef4444',
+                    color: colors.error,
                     size: 10,
                     symbol: 'triangle-down',
                 },
@@ -473,11 +477,11 @@ export class RendererPlotly {
                 type: 'scattergl',
                 mode: 'markers',
                 marker: {
-                    color: '#f59e0b',
+                    color: colors.warning,
                     size: 10,
                     symbol: 'diamond',
                 },
-                name: 'Intercepts',
+                name: 'Y-Intercepts',
                 text: intercepts.map(p => p.label),
                 hoverinfo: 'x+y+text' as any,
             });
@@ -492,11 +496,14 @@ export class RendererPlotly {
     private createInterestingPointTraces3D(
         points: InterestingPoint[]
     ): Partial<Plotly.PlotData> {
+        const colors = this.themeConfig['themeManager'].getColors();
+        
+        // Use semantic colors for 3D points too
         const colorMap: { [key: number]: string } = {
-            0: '#3b82f6', // zeros - blue
-            1: '#f59e0b', // intercepts - amber
-            2: '#10b981', // maxima - green
-            3: '#ef4444', // minima - red
+            0: colors.info,     // zeros - info color
+            1: colors.warning,  // intercepts - warning color
+            2: colors.success,  // maxima - success color
+            3: colors.error,    // minima - error color
         };
 
         const markerColors = points.map(p => colorMap[p.type] || '#888888');
@@ -725,7 +732,10 @@ export class RendererPlotly {
      * Update theme colors dynamically when Obsidian theme changes
      */
     public updateTheme(): void {
-        if (!this.plotDiv) return;
+        if (!this.plotDiv || !this.lastResult || !this.currentOptions) {
+            console.warn('Cannot update theme: missing plot, result, or options');
+            return;
+        }
         
         // Check if the plot still exists in the DOM
         if (!document.body.contains(this.plotDiv)) {
@@ -738,25 +748,17 @@ export class RendererPlotly {
             return;
         }
 
-        console.log('🎨 Updating theme for', this.mode, 'plot');
+        console.log('🔄 Performing robust theme update using re-render');
 
-        // Get theme updates from centralized config
-        const { traceUpdate, layoutUpdate } = this.themeConfig.getThemeUpdateForMode(this.mode);
-
-        // Apply updates atomically
-        Plotly.update(this.plotDiv, traceUpdate, layoutUpdate, [0]).then(() => {
-            console.log('✅ Theme updated successfully for', this.mode, 'plot');
-            
-            // Verify colorscale was applied for 3D
-            if (this.mode === '3d') {
-                const plotData = (this.plotDiv as any).data;
-                if (plotData && plotData[0]) {
-                    console.log('🎨 Verified colorscale after update:', plotData[0].colorscale);
-                }
-            }
-        }).catch((err) => {
-            console.error('❌ Error updating theme:', err);
-        });
+        // RE-RENDER using the cached result to ensure all traces and layout are updated atomically
+        // This is more reliable than Plotly.update for complex changes like colorscales
+        if (this.mode === '2d') {
+            this.render2D(this.lastResult, this.currentOptions);
+        } else {
+            this.render3D(this.lastResult, this.currentOptions);
+        }
+        
+        console.log('✅ Theme update completed via re-render');
     }
 
     /**

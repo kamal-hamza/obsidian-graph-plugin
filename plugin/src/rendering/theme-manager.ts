@@ -10,6 +10,11 @@ export interface ThemeColors {
     backgroundSecondary: string;
     backgroundModifier: string;
     borderColor: string;
+    // Semantic colors for better theme integration
+    success: string;
+    warning: string;
+    error: string;
+    info: string;
 }
 
 export interface ObsidianColors {
@@ -57,7 +62,12 @@ export class ThemeManager {
             backgroundPrimary: this.getCSSVariable('--background-primary') || '#202020',
             backgroundSecondary: this.getCSSVariable('--background-secondary') || '#161616',
             backgroundModifier: this.getCSSVariable('--background-modifier-border') || '#333333',
-            borderColor: this.getCSSVariable('--background-modifier-border') || '#333333'
+            borderColor: this.getCSSVariable('--background-modifier-border') || '#333333',
+            // Resolve semantic color variables
+            success: this.getCSSVariable('--text-success') || '#10b981',
+            warning: this.getCSSVariable('--text-warning') || '#f59e0b',
+            error: this.getCSSVariable('--text-error') || '#ef4444',
+            info: this.getCSSVariable('--text-accent') || '#3b82f6'
         };
         return this.colors;
     }
@@ -129,6 +139,28 @@ export class ThemeManager {
     public hexToRGBA(hex: string, alpha: number = 1): string {
         const [r, g, b] = this.hexToRGB255(hex);
         return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    /**
+     * Robustly resolve any CSS color (including HSL with calc()) to an rgba string
+     * This handles Obsidian's complex color expressions
+     */
+    public resolveToRGBA(colorStr: string, alpha: number = 1): string {
+        const temp = document.createElement('div');
+        temp.style.color = colorStr;
+        temp.style.display = 'none';
+        document.body.appendChild(temp);
+        const computed = getComputedStyle(temp).color;
+        document.body.removeChild(temp);
+
+        // Extract numbers from "rgb(r, g, b)" or "rgba(r, g, b, a)"
+        const match = computed.match(/\d+/g);
+        if (!match || match.length < 3) {
+            console.warn('Failed to resolve color:', colorStr);
+            return `rgba(124, 58, 237, ${alpha})`; // fallback to purple
+        }
+        
+        return `rgba(${match[0]}, ${match[1]}, ${match[2]}, ${alpha})`;
     }
 
     /**

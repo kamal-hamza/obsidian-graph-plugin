@@ -16,34 +16,20 @@ export class PlotlyThemeConfig {
 
     /**
      * Generate a theme-aware colorscale for 3D surfaces
-     * Uses accent colors to match Obsidian theme
+     * Uses a monochrome gradient based on accent color with varying opacity
      */
     public generateColorscale(): Array<[number, string]> {
         const colors = this.themeManager.getColors();
         
-        // Convert colors to RGB format (Plotly requirement)
-        const accentHex = this.colorToHex(colors.interactiveAccent);
-        const accentHoverHex = this.colorToHex(colors.interactiveAccentHover);
-        
-        // Create gradient: dark accent → accent → accent-hover → light accent
-        const darkShade = this.darkenColor(accentHex, 0.4);
-        const midDark = this.darkenColor(accentHex, 0.2);
-        const midLight = this.lightenColor(accentHoverHex, 0.2);
-        const lightShade = this.lightenColor(accentHoverHex, 0.4);
-        
-        // Convert to RGB format for Plotly
-        const toRGB = (hex: string): string => {
-            const rgb = this.themeManager.hexToRGB255(hex);
-            return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-        };
+        // Use the resolved accent color to build a monochrome gradient
+        const base = colors.interactiveAccent;
         
         return [
-            [0, toRGB(darkShade)],
-            [0.25, toRGB(midDark)],
-            [0.4, toRGB(accentHex)],
-            [0.6, toRGB(accentHoverHex)],
-            [0.75, toRGB(midLight)],
-            [1, toRGB(lightShade)]
+            [0, this.themeManager.resolveToRGBA(base, 0.2)],   // Faint at bottom
+            [0.2, this.themeManager.resolveToRGBA(base, 0.4)],
+            [0.5, this.themeManager.resolveToRGBA(base, 0.7)],
+            [0.8, this.themeManager.resolveToRGBA(base, 0.9)],
+            [1, this.themeManager.resolveToRGBA(base, 1.0)]    // Full opaque at top
         ];
     }
 
@@ -240,6 +226,7 @@ export class PlotlyThemeConfig {
 
     /**
      * Apply theme styling to a 3D surface trace with proper colorscale
+     * CRITICAL: autocolorscale is disabled to prevent Plotly defaults
      */
     public style3DSurfaceTrace(trace: Partial<PlotData>, equation?: string): Partial<PlotData> {
         const colors = this.themeManager.getColors();
@@ -249,6 +236,7 @@ export class PlotlyThemeConfig {
             ...trace,
             type: 'surface',
             colorscale: colorscale,
+            autocolorscale: false, // CRITICAL: Prevent Plotly from overriding with default RdBu
             reversescale: false,
             showscale: true,
             colorbar: {
@@ -275,7 +263,7 @@ export class PlotlyThemeConfig {
                 },
             },
             contours: {
-                x: {
+                z: {
                     show: true,
                     usecolormap: true,
                     highlightcolor: colors.interactiveAccent,
@@ -373,8 +361,9 @@ export class PlotlyThemeConfig {
             layoutUpdate['scene.zaxis.color'] = colors.textNormal;
             layoutUpdate['scene.zaxis.tickfont.color'] = colors.textMuted;
 
-            // CRITICAL: Update colorscale for 3D surface
+            // CRITICAL: Update colorscale for 3D surface and disable autocolorscale
             traceUpdate['colorscale'] = this.generateColorscale();
+            traceUpdate['autocolorscale'] = false; // Force Plotly to use our colorscale
             traceUpdate['colorbar.title.font.color'] = colors.textNormal;
             traceUpdate['colorbar.tickfont.color'] = colors.textMuted;
             traceUpdate['colorbar.outlinecolor'] = colors.borderColor;
