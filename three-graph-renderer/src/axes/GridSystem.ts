@@ -1,4 +1,4 @@
-import { Group, Mesh, PlaneGeometry, MeshBasicMaterial, GridHelper, DoubleSide, LineBasicMaterial, Camera, LineSegments, BoxGeometry, WireframeGeometry } from 'three';
+import { Group, Mesh, PlaneGeometry, MeshBasicMaterial, DoubleSide, LineBasicMaterial, Camera, LineSegments, BoxGeometry, WireframeGeometry, BufferGeometry, Float32BufferAttribute } from 'three';
 import { ThemeConfig } from '../config/ThemeConfig';
 import { GraphBounds } from '../GraphRenderer';
 
@@ -17,9 +17,9 @@ export class GridSystem {
     private yzPlane: Mesh;
 
     // Grids
-    private xyGrid: GridHelper | null = null;
-    private xzGrid: GridHelper | null = null;
-    private yzGrid: GridHelper | null = null;
+    private xyGrid: LineSegments | null = null;
+    private xzGrid: LineSegments | null = null;
+    private yzGrid: LineSegments | null = null;
 
     // Cage (Mirror Effect)
     private cage: LineSegments;
@@ -63,86 +63,68 @@ export class GridSystem {
         const ySize = Math.abs(bounds.yMax - bounds.yMin);
         const zSize = Math.abs(bounds.zMax - bounds.zMin);
 
-        // Update Cage
-        // WireframeGeometry doesn't scale well if we just scale the mesh because lines get thick/thin?
-        // Actually LineSegments with LineBasicMaterial stays 1px usually. Scale is fine.
-        this.cage.scale.set(xSize, ySize, zSize);
-        this.cage.position.set(
-            (bounds.xMin + bounds.xMax) / 2,
-            (bounds.yMin + bounds.yMax) / 2,
-            (bounds.zMin + bounds.zMax) / 2
-        );
+        const cx = (bounds.xMin + bounds.xMax) / 2;
+        const cy = (bounds.yMin + bounds.yMax) / 2;
+        const cz = (bounds.zMin + bounds.zMax) / 2;
 
-        // 1. Update Plane Scales
+        // Helper to create grid geometry based on specific ticks
+        const createGridGeo = (ticksA: number[], ticksB: number[], minA: number, maxA: number, minB: number, maxB: number, cA: number, cB: number) => {
+            const pts: number[] = [];
+            // Lines parallel to B-axis (vertical lines at A-ticks)
+            for (const a of ticksA) {
+                pts.push(a - cA, minB - cB, 0, a - cA, maxB - cB, 0);
+            }
+            // Lines parallel to A-axis (horizontal lines at B-ticks)
+            for (const b of ticksB) {
+                pts.push(minA - cA, b - cB, 0, maxA - cA, b - cB, 0);
+            }
+            const geo = new BufferGeometry();
+            geo.setAttribute('position', new Float32BufferAttribute(pts, 3));
+            return geo;
+        };
+
+        // Dispose old grids
+        [this.xyGrid, this.xzGrid, this.yzGrid].forEach(g => {
+            if (g) { this.group.remove(g); g.geometry.dispose(); }
+        });
+
+        const gridMat = new LineBasicMaterial({
+            color: this.theme.majorGridColor,
+            transparent: true,
+            opacity: 0.2
+        });
+
+        // Create New Tick-Aligned Grids
+        this.xyGrid = new LineSegments(createGridGeo(ticks.x, ticks.y, bounds.xMin, bounds.xMax, bounds.yMin, bounds.yMax, cx, cy), gridMat);
+
+        // XZ Grid: Note we swap Z/Y logic for orientation
+        this.xzGrid = new LineSegments(createGridGeo(ticks.x, ticks.z, bounds.xMin, bounds.xMax, bounds.zMin, bounds.zMax, cx, cz), gridMat);
+        this.xzGrid.rotation.x = Math.PI / 2;
+
+        // YZ Grid: Note we swap Z/X logic for orientation
+        this.yzGrid = new LineSegments(createGridGeo(ticks.y, ticks.z, bounds.yMin, bounds.yMax, bounds.zMin, bounds.zMax, cy, cz), gridMat);
+        this.yzGrid.rotation.y = Math.PI / 2;
+
+        this.group.add(this.xyGrid, this.xzGrid, this.yzGrid);
+
+        // Update Plane and Cage scales (Existing logic)
         this.xyPlane.scale.set(xSize, ySize, 1);
         this.xzPlane.scale.set(xSize, zSize, 1);
         this.yzPlane.scale.set(zSize, ySize, 1);
-
-        // 2. Grids (Helpers)
-        // Re-create grids if needed or just move them. 
-        // For simplicity, we re-create if size changes significantly, but primarily we just move them in update().
-
-        // Update GridHelpers
-        const maxDim = Math.max(xSize, ySize, zSize);
-        // Spacing heuristic
-        let spacing = 1;
-        if (ticks.x.length > 1) spacing = ticks.x[1] - ticks.x[0];
-
-        const divisions = Math.ceil(maxDim / spacing);
-        const helperSize = divisions * spacing;
-
-        const color1 = 0x888888;
-        const color2 = 0x888888;
-
-        // Dispose old grids
-        if (this.xyGrid) { this.group.remove(this.xyGrid); this.xyGrid.dispose(); }
-        if (this.xzGrid) { this.group.remove(this.xzGrid); this.xzGrid.dispose(); }
-        if (this.yzGrid) { this.group.remove(this.yzGrid); this.yzGrid.dispose(); }
-
-        // Create new Grids
-        this.xyGrid = new GridHelper(helperSize, divisions, color1, color2);
-        this.xyGrid.rotation.x = Math.PI / 2;
-
-        this.xzGrid = new GridHelper(helperSize, divisions, color1, color2);
-        // Default GridHelper is XZ plane. matches our XZ wall orientation locally? 
-        // XZ Plane geometry is Rotated X 90. 
-        // GridHelper is XZ (Y up). 
-        // effectively they are similar. 
-
-        this.yzGrid = new GridHelper(helperSize, divisions, color1, color2);
-        this.yzGrid.rotation.z = Math.PI / 2;
-
-        this.group.add(this.xyGrid);
-        this.group.add(this.xzGrid);
-        this.group.add(this.yzGrid);
-
-        // Apply theme to new grids
-        this.updateTheme(this.theme); // Re-apply theme colors/opacity
-
-        // Force an update to position them correctly immediately
-        // We can't do it without a camera, so we wait for the loop.
+        this.cage.scale.set(xSize, ySize, zSize);
+        this.cage.position.set(cx, cy, cz);
     }
 
     public updateTheme(theme: ThemeConfig) {
         this.theme = theme;
+        const mat = new LineBasicMaterial({ color: theme.majorGridColor, transparent: true, opacity: 0.2 });
+        if (this.xyGrid) this.xyGrid.material = mat;
+        if (this.xzGrid) this.xzGrid.material = mat;
+        if (this.yzGrid) this.yzGrid.material = mat;
+
         (this.xyPlane.material as MeshBasicMaterial).color.set(theme.gridColor);
         (this.xzPlane.material as MeshBasicMaterial).color.set(theme.gridColor);
         (this.yzPlane.material as MeshBasicMaterial).color.set(theme.gridColor);
-
-        const gridMatUpdate = (grid: GridHelper | null) => {
-            if (!grid) return;
-            const mat = grid.material as LineBasicMaterial;
-            mat.opacity = 0.15;
-            mat.transparent = true;
-            mat.color.set(theme.majorGridColor);
-            // GridHelper vertex colors override this usually, unless we disable vertex colors?
-            // ThreeJS GridHelper sets vertexColors: true. 
-            // We might need to make a custom grid if we want strict color control, 
-            // but usually setting material color tints it.
-        };
-        gridMatUpdate(this.xyGrid);
-        gridMatUpdate(this.xzGrid);
-        gridMatUpdate(this.yzGrid);
     }
 
     public update(camera: Camera) {
@@ -180,13 +162,16 @@ export class GridSystem {
 
     public dispose() {
         this.group.clear();
-        this.xyGrid?.dispose();
-        this.xzGrid?.dispose();
-        this.yzGrid?.dispose();
+        if (this.xyGrid) { this.xyGrid.geometry.dispose(); }
+        if (this.xzGrid) { this.xzGrid.geometry.dispose(); }
+        if (this.yzGrid) { this.yzGrid.geometry.dispose(); }
+
         // Planes geometries are shared or static? In constructor we made new ones.
         (this.xyPlane.geometry).dispose();
         (this.xzPlane.geometry).dispose();
         (this.yzPlane.geometry).dispose();
+
+        this.cage.geometry.dispose();
     }
 }
 
