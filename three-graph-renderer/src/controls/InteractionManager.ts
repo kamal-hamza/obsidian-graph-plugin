@@ -139,16 +139,27 @@ export class InteractionManager {
             this.spikelines.visible = true;
             const positions = this.spikelines.geometry.attributes.position as BufferAttribute;
 
-            // X-axis spike: (x_min, y, z) -> (x, y, z)
-            positions.setXYZ(0, this.bounds.xMin, point.y, point.z);
+            // Calculate Dynamic Walls consistent with GridSystem
+            const cx = (this.bounds.xMin + this.bounds.xMax) / 2;
+            const cy = (this.bounds.yMin + this.bounds.yMax) / 2;
+            const cz = (this.bounds.zMin + this.bounds.zMax) / 2;
+
+            const camPos = this.camera.position;
+
+            const wallX = camPos.x > cx ? this.bounds.xMin : this.bounds.xMax;
+            const wallY = camPos.y > cy ? this.bounds.yMin : this.bounds.yMax;
+            const wallZ = camPos.z > cz ? this.bounds.zMin : this.bounds.zMax;
+
+            // X-axis spike: (wallX, y, z) -> (x, y, z)
+            positions.setXYZ(0, wallX, point.y, point.z);
             positions.setXYZ(1, point.x, point.y, point.z);
 
-            // Y-axis spike: (x, y_min, z) -> (x, y, z)
-            positions.setXYZ(2, point.x, this.bounds.yMin, point.z);
+            // Y-axis spike: (x, wallY, z) -> (x, y, z)
+            positions.setXYZ(2, point.x, wallY, point.z);
             positions.setXYZ(3, point.x, point.y, point.z);
 
-            // Z-axis spike: (x, y, z_min) -> (x, y, z)
-            positions.setXYZ(4, point.x, point.y, this.bounds.zMin);
+            // Z-axis spike: (x, y, wallZ) -> (x, y, z)
+            positions.setXYZ(4, point.x, point.y, wallZ);
             positions.setXYZ(5, point.x, point.y, point.z);
 
             positions.needsUpdate = true;

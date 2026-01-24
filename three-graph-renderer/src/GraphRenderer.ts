@@ -1,4 +1,4 @@
-import { Scene, PerspectiveCamera, WebGLRenderer, Color, DirectionalLight, AmbientLight } from 'three';
+import { Scene, PerspectiveCamera, WebGLRenderer, Color, DirectionalLight, AmbientLight, Group } from 'three';
 import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { ThemeConfig, DEFAULT_THEME } from './config/ThemeConfig';
 import { InputController } from './controls/InputController';
@@ -6,16 +6,26 @@ import { InteractionManager } from './controls/InteractionManager';
 import { AxisSystem } from './axes/AxisSystem';
 import { GridSystem } from './axes/GridSystem';
 import { GraphGeometry } from './geometry/GraphGeometry';
-import { WasmComputer } from './compute/WasmComputer';
+import { WasmComputer } from './wasm/WasmComputer';
 import { Legend } from './ui/Legend';
 import { Colorbar } from './ui/Colorbar';
 import { NiceScale } from './utils/NiceScale';
+
+export interface GraphBounds {
+    xMin: number;
+    xMax: number;
+    yMin: number;
+    yMax: number;
+    zMin: number;
+    zMax: number;
+}
 
 export class GraphRenderer {
     private container: HTMLElement | null = null;
     private renderer: WebGLRenderer;
     private labelRenderer: CSS2DRenderer;
     private scene: Scene;
+    private graphGroup: Group;
     private camera: PerspectiveCamera;
 
     private input: InputController;
@@ -36,13 +46,16 @@ export class GraphRenderer {
     private lights: { ambient: AmbientLight, directional: DirectionalLight };
 
     // State for calculated bounds
-    private activeBounds: { xMin: number, xMax: number, yMin: number, yMax: number, zMin: number, zMax: number } | undefined;
+    private activeBounds: GraphBounds | undefined;
     private activeSpacing: number | undefined;
 
     constructor(wasmFactory?: any) {
         // 1. Core Three.js Setup
         this.scene = new Scene();
         this.scene.background = new Color(this.theme.backgroundColor);
+
+        this.graphGroup = new Group();
+        this.scene.add(this.graphGroup);
 
         this.camera = new PerspectiveCamera(60, 1, 0.1, 50000);
         this.camera.position.set(20, 20, 20); // Initial view
@@ -69,8 +82,8 @@ export class GraphRenderer {
         this.input = new InputController(this.camera, this.renderer);
         this.input.controls.addEventListener('change', () => { this.needsUpdate = true; });
 
-        this.axisSystem = new AxisSystem(this.scene, this.theme);
-        this.gridSystem = new GridSystem(this.scene, this.theme);
+        this.axisSystem = new AxisSystem(this.graphGroup, this.theme);
+        this.gridSystem = new GridSystem(this.graphGroup, this.theme);
 
         // Initialize UI
         this.legend = new Legend();
@@ -156,6 +169,23 @@ export class GraphRenderer {
         await this.addTrace('default', formula);
     }
 
+    private updateAspectRatio() {
+        if (!this.activeBounds) return;
+
+        const xSize = Math.abs(this.activeBounds.xMax - this.activeBounds.xMin);
+        const ySize = Math.abs(this.activeBounds.yMax - this.activeBounds.yMin);
+        const zSize = Math.abs(this.activeBounds.zMax - this.activeBounds.zMin);
+
+        if (zSize < 1e-9) return;
+
+        const maxXY = Math.max(xSize, ySize);
+        // Target Z visual size: at least 50% of the max dimension
+        const targetZ = Math.max(zSize, maxXY * 0.5);
+        const zScale = targetZ / zSize;
+
+        this.graphGroup.scale.set(1, 1, zScale);
+    }
+
     public async addTrace(id: string, formula: string) {
         const resolution = 150;
         // Initial Raw Range
@@ -198,19 +228,6 @@ export class GraphRenderer {
         };
 
         // Use largest spacing for uniform grid/ticks? Or independent?
-        // GridSystem currently uses uniform spacing for divisions.
-        // Let's pick standard spacing or max?
-        // Let's use Z spacing for Z axis and X spacing for X axis?
-        // AxisSystem handles independent ticks.
-        // GridSystem handles 3D grid.
-        // For MVP, if we want square grid cells, we need uniform spacing.
-        // Let's pick the spacing from the largest dimension?
-        // Or just prioritize Z?
-        // Let's try to harmonize spacing if possible.
-        // For now, pass explicit spacing to GridSystem if it supports it (it does now).
-        // GridSystem.updateBounds(bounds, spacing)
-
-        // Let's use X spacing as the primary "Grid Unit" if reasonable?
         const primarySpacing = niceX.getTickSpacing();
 
         // If trace exists, update it. If not, create new.
@@ -218,8 +235,8 @@ export class GraphRenderer {
         if (!geometry) {
             geometry = new GraphGeometry();
             this.traces.set(id, geometry);
-            this.scene.add(geometry.getObject());
-            this.scene.add(geometry.getContourObject());
+            this.graphGroup.add(geometry.getObject());
+            this.graphGroup.add(geometry.getContourObject());
 
             // Set initial styles
             const mat = geometry.getMaterial();
@@ -232,9 +249,20 @@ export class GraphRenderer {
             this.interactionManager.setTarget(geometry.getObject());
         }
 
+        // Update data
+        this.activeBounds = bounds;
+        this.activeSpacing = primarySpacing;
+
+        // Collect Ticks
+        const ticks = {
+            x: niceX.getTicks(),
+            y: niceY.getTicks(),
+            z: niceZ.getTicks()
+        };
+
         // Update Grids & Walls
-        // We pass bounds and a preferred spacing.
-        this.gridSystem.updateBounds(bounds, primarySpacing);
+        // We pass bounds and explicit ticks
+        this.gridSystem.updateBounds(bounds, ticks);
 
         // Update Interaction Manager
         this.interactionManager.updateBounds(bounds);
@@ -245,13 +273,9 @@ export class GraphRenderer {
         // Set Floor Level
         geometry.setFloorLevel(bounds.zMin);
 
-        // Update Axis System with new bounds and spacing
-        // We need to store these for the animate loop or just update it now?
-        // AxisSystem.update() is in animate(). We should store the active bounds/spacing there?
-        // AxisSystem.update(camera, bounds, spacing).
-        // We need to store these in GraphRenderer state.
-        this.activeBounds = bounds;
-        this.activeSpacing = primarySpacing;
+        // Update Aspect Ratio
+        this.updateAspectRatio();
+
 
         // Update data
         if (data) {
@@ -264,8 +288,8 @@ export class GraphRenderer {
     public removeTrace(id: string) {
         const geometry = this.traces.get(id);
         if (geometry) {
-            this.scene.remove(geometry.getObject());
-            this.scene.remove(geometry.getContourObject());
+            this.graphGroup.remove(geometry.getObject());
+            this.graphGroup.remove(geometry.getContourObject());
             // Dispose geometry/material?
             this.traces.delete(id);
             this.legend.removeTrace(id);
@@ -312,7 +336,7 @@ export class GraphRenderer {
             this.input.update();
 
             this.axisSystem.update(this.camera, this.activeBounds, this.activeSpacing);
-            this.gridSystem.update(this.camera.position);
+            this.gridSystem.update(this.camera);
 
             this.renderer.render(this.scene, this.camera);
             this.labelRenderer.render(this.scene, this.camera);

@@ -1,9 +1,9 @@
-import { Line, BufferGeometry, LineBasicMaterial, Vector3, Scene, Camera, Frustum, Matrix4 } from 'three';
+import { Line, BufferGeometry, LineBasicMaterial, Vector3, Camera, Frustum, Matrix4, Object3D, Vector2 } from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { ThemeConfig } from '../config/ThemeConfig';
 
 export class AxisSystem {
-    private scene: Scene;
+    private parent: Object3D;
     private xLine: Line;
     private yLine: Line;
     private zLine: Line;
@@ -15,8 +15,8 @@ export class AxisSystem {
     private frustum = new Frustum();
     private projScreenMatrix = new Matrix4();
 
-    constructor(scene: Scene, theme: ThemeConfig) {
-        this.scene = scene;
+    constructor(parent: Object3D, theme: ThemeConfig) {
+        this.parent = parent;
 
         // Create Infinite Lines (Geometry big enough to seem infinite)
         const EXTENT = 10000;
@@ -30,9 +30,9 @@ export class AxisSystem {
         // Z Axis (Up)
         this.zLine = new Line(new BufferGeometry().setFromPoints([new Vector3(0, 0, -EXTENT), new Vector3(0, 0, EXTENT)]), mat);
 
-        scene.add(this.xLine);
-        scene.add(this.yLine);
-        scene.add(this.zLine);
+        parent.add(this.xLine);
+        parent.add(this.yLine);
+        parent.add(this.zLine);
 
         // Pre-populate pool
         for (let i = 0; i < 50; i++) {
@@ -51,92 +51,141 @@ export class AxisSystem {
         return new CSS2DObject(div);
     }
 
-    public update(camera: Camera, bounds?: { xMin: number, xMax: number, yMin: number, yMax: number, zMin: number, zMax: number }, tickSpacing?: number) {
-        // 1. Culling Logic
-        // Update frustum
+    public update(camera: Camera, bounds?: { xMin: number, xMax: number, yMin: number, yMax: number, zMin: number, zMax: number }, forceTickSpacing?: number) {
+        if (!bounds) return;
+
+        // 1. Update Matrices
+        camera.updateMatrixWorld();
         this.projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
         this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
 
-        // 2. Determine visible ticks
-        const dist = camera.position.length();
-        let step = tickSpacing || 1;
-
-        // If no tickSpacing provided (legacy), fall back to distance heuristic
-        if (!tickSpacing) {
-            if (dist > 20) step = 5;
-            if (dist > 100) step = 20;
-        }
-
-        const visibleRange = dist * 1.5;
-
-        // Define ranges to iterate
-        let xMin = -visibleRange, xMax = visibleRange;
-        let yMin = -visibleRange, yMax = visibleRange;
-        let zMin = -visibleRange, zMax = visibleRange;
-
-        if (bounds) {
-            // Constrain ticks to the bounding box + some margin? Or just show ticks within bounds.
-            xMin = bounds.xMin; xMax = bounds.xMax;
-            yMin = bounds.yMin; yMax = bounds.yMax;
-            zMin = bounds.zMin; zMax = bounds.zMax;
-        }
-
-        const ticks: Vector3[] = [];
-
-        // Generate ticks
-        // Snap start to step
-        const startX = Math.ceil(xMin / step) * step;
-        const startY = Math.ceil(yMin / step) * step;
-        const startZ = Math.ceil(zMin / step) * step;
-
-        for (let x = startX; x <= xMax; x += step) {
-            if (Math.abs(x) < 1e-10) continue; // Skip origin
-            ticks.push(new Vector3(x, 0, 0));
-        }
-
-        for (let z = startZ; z <= zMax; z += step) {
-            if (Math.abs(z) < 1e-10) continue;
-            ticks.push(new Vector3(0, 0, z));
-        }
-
-        // Y axis
-        for (let y = startY; y <= yMax; y += step) {
-            if (Math.abs(y) < 1e-10) continue;
-            ticks.push(new Vector3(0, y, 0));
-        }
-
-        // 3. Render Labels
-        // Clear current active labels (return to pool)
+        // 2. Clear Labels
         this.activeLabels.forEach(lbl => {
-            if (this.scene.children.includes(lbl)) {
-                this.scene.remove(lbl);
-            }
+            if (lbl.parent === this.parent) this.parent.remove(lbl);
             this.pool.push(lbl);
         });
         this.activeLabels.clear();
 
-        // Assign new labels
-        for (const pos of ticks) {
-            // Frustum check (optimization: don't even create/fetch label if point is outside)
-            if (!this.frustum.containsPoint(pos)) continue;
+        // 3. Helper to project and calculate screen density
+        const width = window.innerWidth; // Approximate or pass in
+        const height = window.innerHeight;
 
-            let lbl = this.pool.pop();
-            if (!lbl) lbl = this.createLabelObject(); // Grow pool if empty
+        const project = (v: Vector3): Vector3 | null => {
+            const p = v.clone();
+            p.applyMatrix4(this.projScreenMatrix);
+            // Check if behind camera
+            if (p.z > 1) return null; // NDC z is -1 to 1 usually? In ThreeJS, outside 1 is clipped?
+            // Actually applyMatrix4 produces NDC.
+            return new Vector3(
+                (p.x * 0.5 + 0.5) * width,
+                -(p.y * 0.5 - 0.5) * height, // Invert Y for screen coords
+                p.z
+            );
+        };
 
-            lbl.position.copy(pos);
-            // Format text
-            // Determine value based on axis
-            let val = 0;
-            if (Math.abs(pos.y) > 0.001) val = pos.y;
-            else if (Math.abs(pos.z) > 0.001) val = pos.z;
-            else val = pos.x;
+        const getDynamicStep = (axisDir: Vector3): number => {
+            // Measure px distance of 1 unit at the bounds center
+            const center = new Vector3(
+                (bounds.xMin + bounds.xMax) / 2,
+                (bounds.yMin + bounds.yMax) / 2,
+                (bounds.zMin + bounds.zMax) / 2
+            );
+            const p1 = project(center);
+            const p2 = project(center.clone().add(axisDir));
 
-            // Format to reasonable decimals
-            lbl.element.textContent = Number.isInteger(val) ? val.toString() : val.toFixed(2);
+            if (!p1 || !p2) return forceTickSpacing || 1;
 
-            this.scene.add(lbl);
-            this.activeLabels.add(lbl);
-        }
+            const distPx = new Vector2(p1.x - p2.x, p1.y - p2.y).length();
+            if (distPx < 1) return forceTickSpacing || 10; // Very far away
+
+            // We want ~50px per tick
+            const targetStep = 80 / distPx; // units per tick
+
+            // Nice scale rounding
+            const power = Math.floor(Math.log10(targetStep));
+            const base = targetStep / Math.pow(10, power);
+            let niceBase = 1;
+            if (base < 1.5) niceBase = 1;
+            else if (base < 3.5) niceBase = 2;
+            else if (base < 7.5) niceBase = 5;
+            else niceBase = 10;
+
+            return niceBase * Math.pow(10, power);
+        };
+
+        // 4. Generate Ticks
+        const occupiedRects: { x: number, y: number, w: number, h: number }[] = [];
+        const labelMargin = 5; // px
+
+        const processAxis = (start: number, end: number, step: number, createVec: (v: number) => Vector3) => {
+            // Align start to step
+            const first = Math.ceil(start / step) * step;
+
+            for (let val = first; val <= end; val += step) {
+                if (Math.abs(val) < 1e-10) continue; // Skip origin if needed, or keep it.
+
+                const pos3D = createVec(val);
+
+                // Frustum Check
+                if (!this.frustum.containsPoint(pos3D)) continue;
+
+                // Screen Project & Overlap
+                const screenPos = project(pos3D);
+                if (!screenPos) continue;
+
+                // If outside screen bounds (0..width, 0..height), maybe skip?
+                // Allow some margin for partial labels
+                if (screenPos.x < -50 || screenPos.x > width + 50 ||
+                    screenPos.y < -50 || screenPos.y > height + 50) continue;
+
+                // Check Overlap
+                // Assume Label Size roughly 40x20
+                const lw = 40;
+                const lh = 20;
+                const rect = {
+                    x: screenPos.x - lw / 2 - labelMargin,
+                    y: screenPos.y - lh / 2 - labelMargin,
+                    w: lw + labelMargin * 2,
+                    h: lh + labelMargin * 2
+                };
+
+                let collision = false;
+                for (const r of occupiedRects) {
+                    if (rect.x < r.x + r.w && rect.x + rect.w > r.x &&
+                        rect.y < r.y + r.h && rect.y + rect.h > r.y) {
+                        collision = true;
+                        break;
+                    }
+                }
+
+                if (collision) continue;
+
+                // Add Label
+                occupiedRects.push(rect);
+
+                let lbl = this.pool.pop();
+                if (!lbl) lbl = this.createLabelObject();
+
+                lbl.position.copy(pos3D);
+                lbl.element.textContent = Number.isInteger(val) ? val.toString() : val.toFixed(2);
+                // Bonus: Check legibility (color?)
+
+                this.parent.add(lbl);
+                this.activeLabels.add(lbl);
+            }
+        };
+
+        // X Axis
+        const xStep = forceTickSpacing || getDynamicStep(new Vector3(1, 0, 0));
+        processAxis(bounds.xMin, bounds.xMax, xStep, (v) => new Vector3(v, 0, 0));
+
+        // Y Axis
+        const yStep = forceTickSpacing || getDynamicStep(new Vector3(0, 1, 0));
+        processAxis(bounds.yMin, bounds.yMax, yStep, (v) => new Vector3(0, v, 0));
+
+        // Z Axis
+        const zStep = forceTickSpacing || getDynamicStep(new Vector3(0, 0, 1));
+        processAxis(bounds.zMin, bounds.zMax, zStep, (v) => new Vector3(0, 0, v));
     }
 
     public updateTheme(theme: ThemeConfig) {

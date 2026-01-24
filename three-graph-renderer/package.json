@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:engine": "./scripts/build-engine.sh",
+    "build-engine": "bash ./scripts/build-engine.sh",
     "preview": "vite preview"
   },
   "keywords": [

@@ -56,4 +56,21 @@ export class NiceScale {
     public getTickSpacing(): number {
         return this.tickSpacing;
     }
+
+    public getTicks(): number[] {
+        const ticks: number[] = [];
+        const start = this.niceMin;
+        const end = this.niceMax;
+        const step = this.tickSpacing;
+
+        // Avoid infinite loop if step is 0 or invalid
+        if (step <= 0) return [start, end];
+
+        for (let x = start; x <= end + step * 0.1; x += step) {
+            let val = x;
+            if (Math.abs(val) < 1e-10) val = 0;
+            ticks.push(val);
+        }
+        return ticks;
+    }
 }

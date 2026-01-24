@@ -2,7 +2,7 @@
 set -e
 
 # Define paths
-ENGINE_DIR="../engine"
+ENGINE_DIR="./engine"
 OUTPUT_DIR_PUBLIC="./public/wasm"
 OUTPUT_DIR_SRC="./src/wasm"
 

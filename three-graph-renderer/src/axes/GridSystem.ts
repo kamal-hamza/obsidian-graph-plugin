@@ -1,195 +1,192 @@
-import { GridHelper, Color, Scene, Mesh, PlaneGeometry, MeshBasicMaterial, DoubleSide, Group } from 'three';
+import { Group, Mesh, PlaneGeometry, MeshBasicMaterial, GridHelper, DoubleSide, LineBasicMaterial, Camera, LineSegments, BoxGeometry, WireframeGeometry } from 'three';
 import { ThemeConfig } from '../config/ThemeConfig';
+import { GraphBounds } from '../GraphRenderer';
+
+interface GridTicks {
+    x: number[];
+    y: number[];
+    z: number[];
+}
 
 export class GridSystem {
-    private scene: Scene;
     private group: Group;
 
-    // Grids
-    private xyGrid: GridHelper;
-    private xzGrid: GridHelper;
-    private yzGrid: GridHelper;
-
-    // Background Planes (Backdrops)
+    // Planes
     private xyPlane: Mesh;
     private xzPlane: Mesh;
     private yzPlane: Mesh;
 
-    constructor(scene: Scene, theme: ThemeConfig) {
-        this.scene = scene;
+    // Grids
+    private xyGrid: GridHelper | null = null;
+    private xzGrid: GridHelper | null = null;
+    private yzGrid: GridHelper | null = null;
+
+    // Cage (Mirror Effect)
+    private cage: LineSegments;
+
+    private theme: ThemeConfig;
+
+    constructor(parent: Group, theme: ThemeConfig) {
+        this.theme = theme;
         this.group = new Group();
-        this.scene.add(this.group);
+        parent.add(this.group);
 
-        const size = 100;
-        const divs = 10;
+        const planeMat = new MeshBasicMaterial({
+            color: theme.gridColor,
+            transparent: true,
+            opacity: 0.05,
+            side: DoubleSide,
+            depthWrite: false
+        });
 
-        // --- 1. XY Plane (Vertical Back) ---
-        this.xyGrid = new GridHelper(size, divs, theme.majorGridColor, theme.majorGridColor);
-        this.xyGrid.rotation.x = Math.PI / 2;
+        // 1. Create Base Planes (will be scaled)
+        this.xyPlane = new Mesh(new PlaneGeometry(1, 1), planeMat);
+        this.xzPlane = new Mesh(new PlaneGeometry(1, 1), planeMat);
+        this.yzPlane = new Mesh(new PlaneGeometry(1, 1), planeMat);
 
-        this.xyPlane = new Mesh(
-            new PlaneGeometry(size, size),
-            new MeshBasicMaterial({
-                color: theme.gridColor,
-                transparent: true,
-                opacity: 0.05,
-                side: DoubleSide
-            })
-        );
+        this.group.add(this.xyPlane);
+        this.group.add(this.xzPlane);
+        this.group.add(this.yzPlane);
 
-        // --- 2. XZ Plane (Floor) ---
-        this.xzGrid = new GridHelper(size, divs, theme.majorGridColor, theme.majorGridColor);
-
-        this.xzPlane = new Mesh(
-            new PlaneGeometry(size, size),
-            new MeshBasicMaterial({
-                color: theme.gridColor,
-                transparent: true,
-                opacity: 0.05,
-                side: DoubleSide
-            })
-        );
-        this.xzPlane.rotation.x = -Math.PI / 2;
-
-        // --- 3. YZ Plane (Side) ---
-        this.yzGrid = new GridHelper(size, divs, theme.majorGridColor, theme.majorGridColor);
-        this.yzGrid.rotation.z = Math.PI / 2;
-
-        this.yzPlane = new Mesh(
-            new PlaneGeometry(size, size),
-            new MeshBasicMaterial({
-                color: theme.gridColor,
-                transparent: true,
-                opacity: 0.05,
-                side: DoubleSide
-            })
-        );
-        this.yzPlane.rotation.y = Math.PI / 2;
-
-        this.group.add(this.xyGrid, this.xyPlane);
-        this.group.add(this.xzGrid, this.xzPlane);
-        this.group.add(this.yzGrid, this.yzPlane);
-
-        this.updateTheme(theme);
+        // 2. Create Cage (Box)
+        const cageGeo = new BoxGeometry(1, 1, 1);
+        const cageMat = new LineBasicMaterial({ color: theme.axisColor, transparent: true, opacity: 0.3 });
+        this.cage = new LineSegments(new WireframeGeometry(cageGeo), cageMat);
+        this.group.add(this.cage);
     }
 
-    public updateBounds(bounds: { xMin: number, xMax: number, yMin: number, yMax: number, zMin: number, zMax: number }, tickSpacing?: number) {
-        const padding = 0.0;
-        const spacing = tickSpacing || 1;
+    private activeBounds: GraphBounds | null = null;
 
+    public updateBounds(bounds: GraphBounds, ticks: GridTicks) {
+        this.activeBounds = bounds;
         const xSize = Math.abs(bounds.xMax - bounds.xMin);
         const ySize = Math.abs(bounds.yMax - bounds.yMin);
         const zSize = Math.abs(bounds.zMax - bounds.zMin);
 
-        const xC = (bounds.xMin + bounds.xMax) / 2;
-        const yC = (bounds.yMin + bounds.yMax) / 2;
-        const zC = (bounds.zMin + bounds.zMax) / 2;
+        // Update Cage
+        // WireframeGeometry doesn't scale well if we just scale the mesh because lines get thick/thin?
+        // Actually LineSegments with LineBasicMaterial stays 1px usually. Scale is fine.
+        this.cage.scale.set(xSize, ySize, zSize);
+        this.cage.position.set(
+            (bounds.xMin + bounds.xMax) / 2,
+            (bounds.yMin + bounds.yMax) / 2,
+            (bounds.zMin + bounds.zMax) / 2
+        );
+
+        // 1. Update Plane Scales
+        this.xyPlane.scale.set(xSize, ySize, 1);
+        this.xzPlane.scale.set(xSize, zSize, 1);
+        this.yzPlane.scale.set(zSize, ySize, 1);
+
+        // 2. Grids (Helpers)
+        // Re-create grids if needed or just move them. 
+        // For simplicity, we re-create if size changes significantly, but primarily we just move them in update().
+
+        // Update GridHelpers
+        const maxDim = Math.max(xSize, ySize, zSize);
+        // Spacing heuristic
+        let spacing = 1;
+        if (ticks.x.length > 1) spacing = ticks.x[1] - ticks.x[0];
+
+        const divisions = Math.ceil(maxDim / spacing);
+        const helperSize = divisions * spacing;
+
+        const color1 = 0x888888;
+        const color2 = 0x888888;
 
         // Dispose old grids
-        this.group.remove(this.xyGrid);
-        this.group.remove(this.xzGrid);
-        this.group.remove(this.yzGrid);
-        this.xyGrid.geometry.dispose();
-        // @ts-ignore
-        if (this.xyGrid.material) (this.xyGrid.material as any).dispose();
-        this.xzGrid.geometry.dispose();
-        // @ts-ignore
-        if (this.xzGrid.material) (this.xzGrid.material as any).dispose();
-        this.yzGrid.geometry.dispose();
-        // @ts-ignore
-        if (this.yzGrid.material) (this.yzGrid.material as any).dispose();
+        if (this.xyGrid) { this.group.remove(this.xyGrid); this.xyGrid.dispose(); }
+        if (this.xzGrid) { this.group.remove(this.xzGrid); this.xzGrid.dispose(); }
+        if (this.yzGrid) { this.group.remove(this.yzGrid); this.yzGrid.dispose(); }
 
-
-        // Create New Grids
-        const c1 = 0x444444; const c2 = 0x888888;
-
-        // 1. Floor (XY)
-        // GridHelper(size, divisions, ...)
-        // We set size=100 (base), divisions = 100/spacing.
-        // This ensures that when we scale it, the spacing in world units is correct?
-        // Wait: If size=100, divisions=100 (spacing 1). Line every 1 unit.
-        // If we scale by 2, size becomes 200. Start spacing 1 -> Scaled spacing 2.
-        // PROPER WAY:
-        // Set divisions such that when scaled, the world spacing is 'tickSpacing'.
-        // WorldSize = BaseSize * Scale.
-        // WorldSpacing = (BaseSize / Divisions) * Scale.
-        // tickSpacing = (100 / Divisions) * Scale.
-        // Divisions = (100 * Scale) / tickSpacing.
-        // Scale for X is xSize/100.
-        // Divisions = (100 * (xSize/100)) / tickSpacing = xSize / tickSpacing.
-        // Correct!
-
-        // However, we have uniform divisions. 
-        // If xSize != ySize, we need different divisions for X and Y lines?
-        // GridHelper has ONE 'divisions' parameter for both axes.
-        // IMPOSSIBLE to have perfect square cells if xSize != ySize using GridHelper with non-uniform scale.
-
-        // Fix: Use equal sizing for the GridHelper creation to keep cells square, then clip?
-        // OR: Just use the max dimension for divisions calculation, and use that max dimension for the grid size, then just position it?
-        // Yes! Create a square grid helper of size MAX(x,y,z) large enough to cover everything.
-        // Then we don't scale it non-uniformly. We leave scale at 1,1,1.
-        // We might just see extra lines outside the bounds?
-        // If we want to hide lines outside, we need stencils or masking.
-        // For MVP "Perfect Fit", showing extra lines is better than distorted rectangles.
-        // OR: We just accept rectangular cells if axes have different ranges.
-        // Users usually prefer square cells.
-
-        // Let's go with: Custom Divisions for GridHelper is not possible.
-        // Let's try to fit xSize and ySize.
-        // If we use divisions = xSize / spacing, then Y spacing will be (ySize/xSize) * spacing?
-        // Not ideal.
-
-        // Let's settle on: GridHelper of size `max(xSize, ySize)` with `max(xSize, ySize) / spacing` divisions.
-        // We set Scale to 1,1,1.
-        // We update the Plane (backdrop) transparency to only highlight the bounded area.
-        // The grid lines will extend beyond the backdrop. This is acceptable for a 3D graph tool (infinite grid look).
-
-        const maxDim = Math.max(xSize, ySize, zSize);
-        // Round maxDim up to nearest tickSpacing multiple?
-        const divs = Math.max(1, Math.round(maxDim / spacing));
-        const gridSize = divs * spacing; // Actual size to exact multiples
-
-        this.xyGrid = new GridHelper(gridSize, divs, c2, c1);
+        // Create new Grids
+        this.xyGrid = new GridHelper(helperSize, divisions, color1, color2);
         this.xyGrid.rotation.x = Math.PI / 2;
-        this.xyGrid.position.set(xC, yC, bounds.zMin - padding);
-        // No scaling!
 
-        this.xzGrid = new GridHelper(gridSize, divs, c2, c1);
-        this.xzGrid.position.set(xC, bounds.yMin - padding, zC);
+        this.xzGrid = new GridHelper(helperSize, divisions, color1, color2);
+        // Default GridHelper is XZ plane. matches our XZ wall orientation locally? 
+        // XZ Plane geometry is Rotated X 90. 
+        // GridHelper is XZ (Y up). 
+        // effectively they are similar. 
 
-        this.yzGrid = new GridHelper(gridSize, divs, c2, c1);
+        this.yzGrid = new GridHelper(helperSize, divisions, color1, color2);
         this.yzGrid.rotation.z = Math.PI / 2;
-        this.yzGrid.position.set(bounds.xMin - padding, yC, zC);
 
-        // Update Planes (Bounds only)
-        // These define the "Box" visually.
-        this.xyPlane.position.set(xC, yC, bounds.zMin - padding);
-        this.xyPlane.scale.set(xSize / 100, ySize / 100, 1);
+        this.group.add(this.xyGrid);
+        this.group.add(this.xzGrid);
+        this.group.add(this.yzGrid);
 
-        this.xzPlane.position.set(xC, bounds.yMin - padding, zC);
-        this.xzPlane.scale.set(xSize / 100, zSize / 100, 1);
+        // Apply theme to new grids
+        this.updateTheme(this.theme); // Re-apply theme colors/opacity
 
-        this.yzPlane.position.set(bounds.xMin - padding, yC, zC);
-        this.yzPlane.scale.set(zSize / 100, ySize / 100, 1);
-
-        this.group.add(this.xyGrid, this.xzGrid, this.yzGrid);
+        // Force an update to position them correctly immediately
+        // We can't do it without a camera, so we wait for the loop.
     }
 
     public updateTheme(theme: ThemeConfig) {
-        const wallColor = new Color(theme.gridColor);
+        this.theme = theme;
+        (this.xyPlane.material as MeshBasicMaterial).color.set(theme.gridColor);
+        (this.xzPlane.material as MeshBasicMaterial).color.set(theme.gridColor);
+        (this.yzPlane.material as MeshBasicMaterial).color.set(theme.gridColor);
 
-        // Update Plane Opacity/Color
-        [this.xyPlane, this.xzPlane, this.yzPlane].forEach(mesh => {
-            const mat = mesh.material as MeshBasicMaterial;
-            mat.color.set(wallColor);
-            mat.opacity = 0.05;
-        });
+        const gridMatUpdate = (grid: GridHelper | null) => {
+            if (!grid) return;
+            const mat = grid.material as LineBasicMaterial;
+            mat.opacity = 0.15;
+            mat.transparent = true;
+            mat.color.set(theme.majorGridColor);
+            // GridHelper vertex colors override this usually, unless we disable vertex colors?
+            // ThreeJS GridHelper sets vertexColors: true. 
+            // We might need to make a custom grid if we want strict color control, 
+            // but usually setting material color tints it.
+        };
+        gridMatUpdate(this.xyGrid);
+        gridMatUpdate(this.xzGrid);
+        gridMatUpdate(this.yzGrid);
     }
 
-    public update(_cameraPosition: any) {
+    public update(camera: Camera) {
+        if (!this.activeBounds) return;
+        const bounds = this.activeBounds;
+
+        // Calculate Center
+        const cx = (bounds.xMin + bounds.xMax) / 2;
+        const cy = (bounds.yMin + bounds.yMax) / 2;
+        const cz = (bounds.zMin + bounds.zMax) / 2;
+
+        // Determine "Back" Faces relative to camera
+        // If Camera X > Center X, we view from Right. Back wall is Left (xMin).
+        // If Camera X < Center X, we view from Left. Back wall is Right (xMax).
+
+        const camPos = camera.position;
+
+        const wallX = camPos.x > cx ? bounds.xMin : bounds.xMax;
+        const wallY = camPos.y > cy ? bounds.yMin : bounds.yMax;
+        const wallZ = camPos.z > cz ? bounds.zMin : bounds.zMax;
+
+        // 1. XY Plane (Constant Z) - Floor/Ceiling
+        // Position at wallZ
+        this.xyPlane.position.set(cx, cy, wallZ);
+        if (this.xyGrid) this.xyGrid.position.set(cx, cy, wallZ);
+
+        // 2. XZ Plane (Constant Y) - Back/Front Wall
+        this.xzPlane.position.set(cx, wallY, cz);
+        if (this.xzGrid) this.xzGrid.position.set(cx, wallY, cz);
+
+        // 3. YZ Plane (Constant X) - Left/Right Wall
+        this.yzPlane.position.set(wallX, cy, cz);
+        if (this.yzGrid) this.yzGrid.position.set(wallX, cy, cz);
     }
 
     public dispose() {
-        this.scene.remove(this.group);
+        this.group.clear();
+        this.xyGrid?.dispose();
+        this.xzGrid?.dispose();
+        this.yzGrid?.dispose();
+        // Planes geometries are shared or static? In constructor we made new ones.
+        (this.xyPlane.geometry).dispose();
+        (this.xzPlane.geometry).dispose();
+        (this.yzPlane.geometry).dispose();
     }
 }
+
