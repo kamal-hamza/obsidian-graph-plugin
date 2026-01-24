@@ -8,6 +8,10 @@ export class AxisSystem {
     private yLine: Line;
     private zLine: Line;
 
+    private xTitle: CSS2DObject;
+    private yTitle: CSS2DObject;
+    private zTitle: CSS2DObject;
+
 
     private pool: CSS2DObject[] = [];
     private activeLabels: Set<CSS2DObject> = new Set();
@@ -33,6 +37,23 @@ export class AxisSystem {
         for (let i = 0; i < 50; i++) {
             this.pool.push(this.createLabelObject());
         }
+
+        this.xTitle = this.createTitle("X");
+        this.yTitle = this.createTitle("Y");
+        this.zTitle = this.createTitle("Z");
+
+        parent.add(this.xTitle);
+        parent.add(this.yTitle);
+        parent.add(this.zTitle);
+    }
+
+    private createTitle(text: string): CSS2DObject {
+        const div = document.createElement('div');
+        div.textContent = text;
+        div.style.fontWeight = 'bold';
+        div.style.fontSize = '14px';
+        div.style.color = 'var(--text-normal, #888)';
+        return new CSS2DObject(div);
     }
 
     private createLabelObject(): CSS2DObject {
@@ -73,6 +94,11 @@ export class AxisSystem {
         this.xLine.geometry.attributes.position.needsUpdate = true;
         this.yLine.geometry.attributes.position.needsUpdate = true;
         this.zLine.geometry.attributes.position.needsUpdate = true;
+
+        // Update Titles
+        this.xTitle.position.set(bounds.xMax + 1, 0, 0);
+        this.yTitle.position.set(0, bounds.yMax + 1, 0);
+        this.zTitle.position.set(0, 0, bounds.zMax + 1);
 
         // 2. Clear Labels
         this.activeLabels.forEach(lbl => {

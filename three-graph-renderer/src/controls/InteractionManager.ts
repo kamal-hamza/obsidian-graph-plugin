@@ -1,4 +1,4 @@
-import { Raycaster, Vector2, Vector3, Camera, Scene, Mesh, LineSegments, BufferGeometry, BufferAttribute, LineBasicMaterial } from 'three';
+import { Raycaster, Vector2, Vector3, Camera, Scene, Mesh, LineSegments, BufferGeometry, BufferAttribute, LineBasicMaterial, SphereGeometry, MeshBasicMaterial } from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 
 export interface GraphBounds {
@@ -17,6 +17,7 @@ export class InteractionManager {
     private scene: Scene;
     private domElement: HTMLElement;
     private targetMesh: Mesh | null = null;
+    private marker: Mesh | null = null;
 
     private tooltip: CSS2DObject | null = null;
     private tooltipElement: HTMLDivElement | null = null;
@@ -37,6 +38,7 @@ export class InteractionManager {
 
         this.initTooltip();
         this.initSpikelines();
+        this.initMarker();
 
         this.domElement.addEventListener('mousemove', this.onMouseMove);
         this.domElement.addEventListener('mouseleave', this.onMouseLeave);
@@ -76,6 +78,14 @@ export class InteractionManager {
         this.spikelines.frustumCulled = false;
         this.spikelines.visible = false;
         this.scene.add(this.spikelines);
+    }
+
+    private initMarker() {
+        const geo = new SphereGeometry(0.15, 16, 16);
+        const mat = new MeshBasicMaterial({ color: 0xffffff });
+        this.marker = new Mesh(geo, mat);
+        this.marker.visible = false;
+        this.scene.add(this.marker);
     }
 
     public setTarget(mesh: Mesh) {
@@ -128,11 +138,20 @@ export class InteractionManager {
     }
 
     private showInteraction(point: Vector3) {
+        // Coordinate Snapping
+        const snap = (v: number) => Math.round(v * 10) / 10;
+        const snappedPoint = new Vector3(snap(point.x), snap(point.y), snap(point.z));
+
         if (this.tooltipElement && this.tooltip) {
             this.tooltipElement.style.display = 'block';
-            this.tooltipElement.textContent = `x: ${point.x.toFixed(2)}, y: ${point.y.toFixed(2)}, z: ${point.z.toFixed(2)}`;
+            this.tooltipElement.textContent = `x: ${snappedPoint.x}, y: ${snappedPoint.y}, z: ${snappedPoint.z}`;
             this.tooltip.position.copy(point);
             this.tooltip.position.z += 0.5; // Offset slightly above
+        }
+
+        if (this.marker) {
+            this.marker.visible = true;
+            this.marker.position.copy(point);
         }
 
         if (this.spikelines) {
@@ -173,6 +192,9 @@ export class InteractionManager {
         if (this.spikelines) {
             this.spikelines.visible = false;
         }
+        if (this.marker) {
+            this.marker.visible = false;
+        }
     }
 
     public dispose() {
@@ -187,6 +209,12 @@ export class InteractionManager {
             this.scene.remove(this.spikelines);
             this.spikelines.geometry.dispose();
             (this.spikelines.material as LineBasicMaterial).dispose();
+        }
+
+        if (this.marker) {
+            this.scene.remove(this.marker);
+            this.marker.geometry.dispose();
+            (this.marker.material as MeshBasicMaterial).dispose();
         }
 
         this.tooltipElement?.remove();

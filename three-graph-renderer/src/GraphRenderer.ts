@@ -38,6 +38,7 @@ export class GraphRenderer {
     private theme: ThemeConfig = DEFAULT_THEME;
     private resizeObserver: ResizeObserver;
     private needsUpdate: boolean = true;
+    public isAutoRotating: boolean = false;
 
     // UI Components
     private legend: Legend;
@@ -313,6 +314,23 @@ export class GraphRenderer {
         this.needsUpdate = true;
     }
 
+    public setView(type: 'top' | 'side' | 'isometric') {
+        switch (type) {
+            case 'top':
+                this.camera.position.set(0, 0, 50);
+                break;
+            case 'side':
+                this.camera.position.set(0, 50, 0);
+                break;
+            case 'isometric':
+                this.camera.position.set(25, 25, 25);
+                break;
+        }
+        this.camera.lookAt(0, 0, 0);
+        this.input.controls.update();
+        this.needsUpdate = true;
+    }
+
     private onResize() {
         if (!this.container) return;
         const width = this.container.clientWidth;
@@ -328,6 +346,11 @@ export class GraphRenderer {
 
     private animate = () => {
         requestAnimationFrame(this.animate);
+
+        if (this.isAutoRotating) {
+            this.graphGroup.rotation.z += 0.005; // Slowly spin the graph
+            this.needsUpdate = true;
+        }
 
         // FIX: Check if interaction changed. If it did, we MUST render.
         const interactionActive = this.interactionManager.update();

@@ -69,8 +69,17 @@ export class GraphMaterial extends MeshStandardMaterial {
             float t = (vWorldZ - uMinZ) / (uMaxZ - uMinZ);
             t = clamp(t, 0.0, 1.0);
             
-            // Overwrite diffuse color
-            diffuseColor = vec4(mix(uColorStart, uColorEnd, t), opacity);
+            vec3 baseColor = mix(uColorStart, uColorEnd, t);
+
+            // --- ADD CONTOUR LINES ---
+            float contourInterval = 1.0; 
+            float contourThickness = 0.05;
+            float dist = abs(mod(vWorldZ + (contourInterval * 0.5), contourInterval) - (contourInterval * 0.5));
+            if (dist < contourThickness) {
+                baseColor = mix(baseColor, vec3(0.0), 0.3); // Darken the color at the contour
+            }
+
+            diffuseColor = vec4(baseColor, opacity);
             `
       );
 

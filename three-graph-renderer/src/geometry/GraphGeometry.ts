@@ -1,9 +1,10 @@
-import { BufferGeometry, BufferAttribute, Mesh } from 'three';
+import { BufferGeometry, BufferAttribute, Mesh, MeshBasicMaterial } from 'three';
 import { GraphMaterial } from '../materials/GraphMaterial';
 import { ContourMaterial } from '../materials/ContourMaterial';
 
 export class GraphGeometry {
     public mesh: Mesh;
+    public wireframeMesh: Mesh;
     public contourMesh: Mesh;
 
     private geometry: BufferGeometry;
@@ -25,6 +26,15 @@ export class GraphGeometry {
 
         this.mesh = new Mesh(this.geometry, this.material);
         this.mesh.frustumCulled = false;
+
+        const wireframeMat = new MeshBasicMaterial({
+            color: 0x000000,
+            transparent: true,
+            opacity: 0.1,
+            wireframe: true
+        });
+        this.wireframeMesh = new Mesh(this.geometry, wireframeMat);
+        this.mesh.add(this.wireframeMesh); // Add as child so it moves with the main mesh
 
         // --- Contour Surface (Floor) ---
         this.contourGeometry = new BufferGeometry();
