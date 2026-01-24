@@ -100,18 +100,30 @@ export class InteractionManager {
         this.hideInteraction();
     }
 
-    public update() {
-        if (!this.targetMesh || !this.camera) return;
+    public updateTheme(axisColor: string) {
+        if (this.spikelines) {
+            (this.spikelines.material as LineBasicMaterial).color.set(axisColor);
+        }
+    }
+
+    public update(): boolean {
+        if (!this.targetMesh || !this.camera) return false;
 
         this.raycaster.setFromCamera(this.mouse, this.camera);
-
+        // If we want multiple targets, we need to pass them or update logic.
+        // For now, assuming single target active or simple intersection.
         const intersects = this.raycaster.intersectObject(this.targetMesh);
+
+        const wasVisible = this.spikelines?.visible || false;
 
         if (intersects.length > 0) {
             const point = intersects[0].point;
             this.showInteraction(point);
+            return true; // We are interacting, keep rendering
         } else {
             this.hideInteraction();
+            // If it was visible but now isn't, return true one last time to clear the spikes
+            return wasVisible;
         }
     }
 

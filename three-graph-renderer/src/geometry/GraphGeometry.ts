@@ -68,7 +68,8 @@ export class GraphGeometry {
 
             flatPositions[i * 3] = x;
             flatPositions[i * 3 + 1] = y;
-            flatPositions[i * 3 + 2] = this.floorZ; // Flatten
+            // FIX: Add a tiny offset (0.01) to lift the lines above the floor grid
+            flatPositions[i * 3 + 2] = this.floorZ + 0.01;
 
             originalZ[i] = z;
         }
@@ -84,14 +85,12 @@ export class GraphGeometry {
 
         // 4. Compute Normals
         this.geometry.computeVertexNormals();
-
-        // Contour geometry might not need normals if basic shader, 
-        // but if we want lighting on lines (unlikely), we'd need them.
-        // For now, skip normals for contour.
-
-        this.geometry.attributes.position.needsUpdate = true;
         this.geometry.computeBoundingSphere();
 
+        // FIX: Calculate bounding sphere for the contour geometry so it isn't culled
+        this.contourGeometry.computeBoundingSphere();
+
+        this.geometry.attributes.position.needsUpdate = true;
         this.contourGeometry.attributes.position.needsUpdate = true;
         this.contourGeometry.attributes.vertexOriginalZ.needsUpdate = true;
     }

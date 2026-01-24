@@ -9,6 +9,7 @@ import { GraphGeometry } from './geometry/GraphGeometry';
 import { WasmComputer } from './compute/WasmComputer';
 import { Legend } from './ui/Legend';
 import { Colorbar } from './ui/Colorbar';
+import { NiceScale } from './utils/NiceScale';
 
 export class GraphRenderer {
     private container: HTMLElement | null = null;
@@ -33,6 +34,10 @@ export class GraphRenderer {
     private colorbar: Colorbar;
 
     private lights: { ambient: AmbientLight, directional: DirectionalLight };
+
+    // State for calculated bounds
+    private activeBounds: { xMin: number, xMax: number, yMin: number, yMax: number, zMin: number, zMax: number } | undefined;
+    private activeSpacing: number | undefined;
 
     constructor(wasmFactory?: any) {
         // 1. Core Three.js Setup
@@ -131,6 +136,9 @@ export class GraphRenderer {
         this.axisSystem.updateTheme(theme);
         this.gridSystem.updateTheme(theme);
 
+        // Update Spikelines Theme
+        this.interactionManager.updateTheme(theme.axisColor);
+
         this.colorbar.updateColors(theme.colorMap.start, theme.colorMap.end);
 
         // Update all traces
@@ -149,10 +157,61 @@ export class GraphRenderer {
     }
 
     public async addTrace(id: string, formula: string) {
-        // Demo range & bounds
-        const range = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
-        const zBounds = { zMin: -5, zMax: 5 };
         const resolution = 150;
+        // Initial Raw Range
+        const rawRange = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
+
+        // 1. Calculate Data First
+        const data = this.computer.calculate(formula, rawRange, resolution);
+
+        // 2. Calculate actual Z bounds
+        let calculatedMinZ = Infinity;
+        let calculatedMaxZ = -Infinity;
+
+        if (data) {
+            for (let i = 0; i < data.length; i += 3) {
+                const z = data[i + 2];
+                if (z < calculatedMinZ) calculatedMinZ = z;
+                if (z > calculatedMaxZ) calculatedMaxZ = z;
+            }
+        }
+
+        // Handle edge case where data is empty or flat
+        if (calculatedMinZ === Infinity || calculatedMaxZ === -Infinity) {
+            calculatedMinZ = -1; calculatedMaxZ = 1;
+        } else if (Math.abs(calculatedMaxZ - calculatedMinZ) < 1e-10) {
+            calculatedMinZ -= 1; calculatedMaxZ += 1;
+        }
+
+        // 3. Compute "Nice" Scales
+        const niceX = new NiceScale(rawRange.xMin, rawRange.xMax);
+        const niceY = new NiceScale(rawRange.yMin, rawRange.yMax);
+        const niceZ = new NiceScale(calculatedMinZ, calculatedMaxZ);
+
+        const bounds = {
+            xMin: niceX.getNiceMin(),
+            xMax: niceX.getNiceMax(),
+            yMin: niceY.getNiceMin(),
+            yMax: niceY.getNiceMax(),
+            zMin: niceZ.getNiceMin(),
+            zMax: niceZ.getNiceMax()
+        };
+
+        // Use largest spacing for uniform grid/ticks? Or independent?
+        // GridSystem currently uses uniform spacing for divisions.
+        // Let's pick standard spacing or max?
+        // Let's use Z spacing for Z axis and X spacing for X axis?
+        // AxisSystem handles independent ticks.
+        // GridSystem handles 3D grid.
+        // For MVP, if we want square grid cells, we need uniform spacing.
+        // Let's pick the spacing from the largest dimension?
+        // Or just prioritize Z?
+        // Let's try to harmonize spacing if possible.
+        // For now, pass explicit spacing to GridSystem if it supports it (it does now).
+        // GridSystem.updateBounds(bounds, spacing)
+
+        // Let's use X spacing as the primary "Grid Unit" if reasonable?
+        const primarySpacing = niceX.getTickSpacing();
 
         // If trace exists, update it. If not, create new.
         let geometry = this.traces.get(id);
@@ -168,23 +227,33 @@ export class GraphRenderer {
             geometry.setContourColor(this.theme.contourColor);
 
             // Add to legend
-            // We can pick a color for the text based on ID or just use theme
             this.legend.addTrace(id, this.theme.colorMap.end);
 
-            // Update Interaction Manager target (simplistically just set to last added for now)
             this.interactionManager.setTarget(geometry.getObject());
         }
 
-        // Update Grids & Walls (Global for now, assuming all traces share valid domain)
-        this.gridSystem.updateBounds({ ...range, ...zBounds });
+        // Update Grids & Walls
+        // We pass bounds and a preferred spacing.
+        this.gridSystem.updateBounds(bounds, primarySpacing);
 
-        // Update Colorbar bounds
-        this.colorbar.updateBounds(zBounds.zMin, zBounds.zMax);
+        // Update Interaction Manager
+        this.interactionManager.updateBounds(bounds);
+
+        // Update Colorbar bounds (using nice z bounds)
+        this.colorbar.updateBounds(bounds.zMin, bounds.zMax);
 
         // Set Floor Level
-        geometry.setFloorLevel(zBounds.zMin);
+        geometry.setFloorLevel(bounds.zMin);
 
-        const data = this.computer.calculate(formula, range, resolution);
+        // Update Axis System with new bounds and spacing
+        // We need to store these for the animate loop or just update it now?
+        // AxisSystem.update() is in animate(). We should store the active bounds/spacing there?
+        // AxisSystem.update(camera, bounds, spacing).
+        // We need to store these in GraphRenderer state.
+        this.activeBounds = bounds;
+        this.activeSpacing = primarySpacing;
+
+        // Update data
         if (data) {
             geometry.updateData(data, resolution);
             this.container?.appendChild(this.legend.getElement()); // Ensure legend is there if mounting happened
@@ -236,13 +305,13 @@ export class GraphRenderer {
     private animate = () => {
         requestAnimationFrame(this.animate);
 
-        // Always update interaction manager
-        this.interactionManager.update();
+        // FIX: Check if interaction changed. If it did, we MUST render.
+        const interactionActive = this.interactionManager.update();
 
-        if (this.needsUpdate) {
+        if (this.needsUpdate || interactionActive) {
             this.input.update();
 
-            this.axisSystem.update(this.camera);
+            this.axisSystem.update(this.camera, this.activeBounds, this.activeSpacing);
             this.gridSystem.update(this.camera.position);
 
             this.renderer.render(this.scene, this.camera);
