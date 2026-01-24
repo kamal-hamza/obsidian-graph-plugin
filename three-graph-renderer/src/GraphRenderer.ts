@@ -2,6 +2,7 @@ import { Scene, PerspectiveCamera, WebGLRenderer, Color, DirectionalLight, Ambie
 import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { ThemeConfig, DEFAULT_THEME } from './config/ThemeConfig';
 import { InputController } from './controls/InputController';
+import { InteractionManager } from './controls/InteractionManager';
 import { AxisSystem } from './axes/AxisSystem';
 import { GridSystem } from './axes/GridSystem';
 import { GraphGeometry } from './geometry/GraphGeometry';
@@ -15,6 +16,7 @@ export class GraphRenderer {
     private camera: PerspectiveCamera;
 
     private input: InputController;
+    private interactionManager: InteractionManager;
     private axisSystem: AxisSystem;
     private gridSystem: GridSystem;
     private graphGeometry: GraphGeometry;
@@ -63,6 +65,10 @@ export class GraphRenderer {
         this.scene.add(this.graphGeometry.getObject());
         this.scene.add(this.graphGeometry.getContourObject());
 
+        // Initialize Interaction Manager
+        this.interactionManager = new InteractionManager(this.camera, this.scene, this.renderer.domElement);
+        this.interactionManager.setTarget(this.graphGeometry.getObject());
+
         this.computer = new WasmComputer(wasmFactory);
 
         this.resizeObserver = new ResizeObserver(() => this.onResize());
@@ -97,6 +103,7 @@ export class GraphRenderer {
             this.resizeObserver.disconnect();
         }
         this.input.dispose();
+        this.interactionManager.dispose();
         this.gridSystem.dispose();
         this.renderer.dispose();
     }
@@ -131,6 +138,12 @@ export class GraphRenderer {
             ...zBounds
         });
 
+        // Update InteractionManager bounds
+        this.interactionManager.updateBounds({
+            ...range,
+            ...zBounds
+        });
+
         // Set Floor Level for Contours
         this.graphGeometry.setFloorLevel(zBounds.zMin);
 
@@ -161,6 +174,9 @@ export class GraphRenderer {
 
     private animate = () => {
         requestAnimationFrame(this.animate);
+
+        // Always update interaction manager
+        this.interactionManager.update();
 
         if (this.needsUpdate) {
             this.input.update();
