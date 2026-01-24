@@ -214,9 +214,28 @@ export class GraphRenderer {
         }
 
         // 3. Compute "Nice" Scales
-        const niceX = new NiceScale(rawRange.xMin, rawRange.xMax);
-        const niceY = new NiceScale(rawRange.yMin, rawRange.yMax);
-        const niceZ = new NiceScale(calculatedMinZ, calculatedMaxZ);
+        // --- FORMULA START: PLOTLY-STYLE PADDING ---
+
+        // Choose your padding per side (e.g., 0.2 = 20% on each side)
+        // 0.25 means the data occupies the middle 50% of the axis.
+        const paddingSide = 0.25;
+        const occupancyFactor = 1 - (2 * paddingSide);
+
+        const applyFormula = (min: number, max: number) => {
+            const span = max - min;
+            const newSpan = span / occupancyFactor; // L_new = L_data / (1 - 2P)
+            const offset = (newSpan - span) / 2;
+            return { min: min - offset, max: max + offset };
+        };
+
+        const padX = applyFormula(rawRange.xMin, rawRange.xMax);
+        const padY = applyFormula(rawRange.yMin, rawRange.yMax);
+        const padZ = applyFormula(calculatedMinZ, calculatedMaxZ);
+
+        // 2. Compute "Nice" Scales using the calculated padded values
+        const niceX = new NiceScale(padX.min, padX.max);
+        const niceY = new NiceScale(padY.min, padY.max);
+        const niceZ = new NiceScale(padZ.min, padZ.max);
 
         const bounds = {
             xMin: niceX.getNiceMin(),
