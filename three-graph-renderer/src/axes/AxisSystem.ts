@@ -18,17 +18,12 @@ export class AxisSystem {
     constructor(parent: Object3D, theme: ThemeConfig) {
         this.parent = parent;
 
-        // Create Infinite Lines (Geometry big enough to seem infinite)
-        const EXTENT = 10000;
-
         const mat = new LineBasicMaterial({ color: theme.axisColor });
 
-        // X Axis
-        this.xLine = new Line(new BufferGeometry().setFromPoints([new Vector3(-EXTENT, 0, 0), new Vector3(EXTENT, 0, 0)]), mat);
-        // Y Axis (Depth in ThreeJS typically, but here Y)
-        this.yLine = new Line(new BufferGeometry().setFromPoints([new Vector3(0, -EXTENT, 0), new Vector3(0, EXTENT, 0)]), mat);
-        // Z Axis (Up)
-        this.zLine = new Line(new BufferGeometry().setFromPoints([new Vector3(0, 0, -EXTENT), new Vector3(0, 0, EXTENT)]), mat);
+        // Initialize with a single point at the origin (0,0,0)
+        this.xLine = new Line(new BufferGeometry().setFromPoints([new Vector3(0, 0, 0), new Vector3(0, 0, 0)]), mat);
+        this.yLine = new Line(new BufferGeometry().setFromPoints([new Vector3(0, 0, 0), new Vector3(0, 0, 0)]), mat);
+        this.zLine = new Line(new BufferGeometry().setFromPoints([new Vector3(0, 0, 0), new Vector3(0, 0, 0)]), mat);
 
         parent.add(this.xLine);
         parent.add(this.yLine);
@@ -58,6 +53,26 @@ export class AxisSystem {
         camera.updateMatrixWorld();
         this.projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
         this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
+
+        // --- NEW: Bound the Axis Lines ---
+        // Update the geometry of the lines to start/end exactly at the box boundaries
+        this.xLine.geometry.setFromPoints([
+            new Vector3(bounds.xMin, 0, 0),
+            new Vector3(bounds.xMax, 0, 0)
+        ]);
+        this.yLine.geometry.setFromPoints([
+            new Vector3(0, bounds.yMin, 0),
+            new Vector3(0, bounds.yMax, 0)
+        ]);
+        this.zLine.geometry.setFromPoints([
+            new Vector3(0, 0, bounds.zMin),
+            new Vector3(0, 0, bounds.zMax)
+        ]);
+
+        // Mark for GPU update
+        this.xLine.geometry.attributes.position.needsUpdate = true;
+        this.yLine.geometry.attributes.position.needsUpdate = true;
+        this.zLine.geometry.attributes.position.needsUpdate = true;
 
         // 2. Clear Labels
         this.activeLabels.forEach(lbl => {
