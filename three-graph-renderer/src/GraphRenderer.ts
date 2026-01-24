@@ -7,6 +7,8 @@ import { AxisSystem } from './axes/AxisSystem';
 import { GridSystem } from './axes/GridSystem';
 import { GraphGeometry } from './geometry/GraphGeometry';
 import { WasmComputer } from './compute/WasmComputer';
+import { Legend } from './ui/Legend';
+import { Colorbar } from './ui/Colorbar';
 
 export class GraphRenderer {
     private container: HTMLElement | null = null;
@@ -19,12 +21,16 @@ export class GraphRenderer {
     private interactionManager: InteractionManager;
     private axisSystem: AxisSystem;
     private gridSystem: GridSystem;
-    private graphGeometry: GraphGeometry;
+    private traces: Map<string, GraphGeometry> = new Map();
     public computer: WasmComputer;
 
     private theme: ThemeConfig = DEFAULT_THEME;
     private resizeObserver: ResizeObserver;
     private needsUpdate: boolean = true;
+
+    // UI Components
+    private legend: Legend;
+    private colorbar: Colorbar;
 
     private lights: { ambient: AmbientLight, directional: DirectionalLight };
 
@@ -61,13 +67,18 @@ export class GraphRenderer {
         this.axisSystem = new AxisSystem(this.scene, this.theme);
         this.gridSystem = new GridSystem(this.scene, this.theme);
 
-        this.graphGeometry = new GraphGeometry();
-        this.scene.add(this.graphGeometry.getObject());
-        this.scene.add(this.graphGeometry.getContourObject());
+        // Initialize UI
+        this.legend = new Legend();
+        this.legend.setCallback((id, visible) => this.toggleTrace(id, visible));
+
+        this.colorbar = new Colorbar();
+        this.colorbar.updateColors(this.theme.colorMap.start, this.theme.colorMap.end);
 
         // Initialize Interaction Manager
         this.interactionManager = new InteractionManager(this.camera, this.scene, this.renderer.domElement);
-        this.interactionManager.setTarget(this.graphGeometry.getObject());
+        // Note: InteractionManager target will be set when adding traces if we want to hover, 
+        // but currently it handles a single mesh or needs modification to handle multiple.
+        // For now, let's just not set a specific target or handle it in addTrace.
 
         this.computer = new WasmComputer(wasmFactory);
 
@@ -91,6 +102,10 @@ export class GraphRenderer {
         container.appendChild(this.renderer.domElement);
         container.appendChild(this.labelRenderer.domElement);
 
+        // Append UI
+        container.appendChild(this.legend.getElement());
+        container.appendChild(this.colorbar.getElement());
+
         this.resizeObserver.observe(container);
         this.onResize();
         this.needsUpdate = true;
@@ -100,6 +115,8 @@ export class GraphRenderer {
         if (this.container) {
             this.container.removeChild(this.renderer.domElement);
             this.container.removeChild(this.labelRenderer.domElement);
+            this.container.removeChild(this.legend.getElement());
+            this.container.removeChild(this.colorbar.getElement());
             this.resizeObserver.disconnect();
         }
         this.input.dispose();
@@ -114,48 +131,92 @@ export class GraphRenderer {
         this.axisSystem.updateTheme(theme);
         this.gridSystem.updateTheme(theme);
 
-        // Update graph material
-        const mat = this.graphGeometry.getMaterial();
-        mat.setColors(theme.colorMap.start, theme.colorMap.end);
+        this.colorbar.updateColors(theme.colorMap.start, theme.colorMap.end);
 
-        // Update Contour Color
-        this.graphGeometry.setContourColor(theme.contourColor);
+        // Update all traces
+        this.traces.forEach(trace => {
+            const mat = trace.getMaterial();
+            mat.setColors(theme.colorMap.start, theme.colorMap.end);
+            trace.setContourColor(theme.contourColor);
+        });
 
         this.needsUpdate = true;
     }
 
     public async setExpression(formula: string) {
-        // Demo range
+        // Backward compatibility
+        await this.addTrace('default', formula);
+    }
+
+    public async addTrace(id: string, formula: string) {
+        // Demo range & bounds
         const range = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
-        // Assume Z range for bounds calculation
-        // In a real app, we'd calculate this from data or set fixed defaults
         const zBounds = { zMin: -5, zMax: 5 };
         const resolution = 150;
 
-        // Update Grids & Walls
-        this.gridSystem.updateBounds({
-            ...range,
-            ...zBounds
-        });
+        // If trace exists, update it. If not, create new.
+        let geometry = this.traces.get(id);
+        if (!geometry) {
+            geometry = new GraphGeometry();
+            this.traces.set(id, geometry);
+            this.scene.add(geometry.getObject());
+            this.scene.add(geometry.getContourObject());
 
-        // Update InteractionManager bounds
-        this.interactionManager.updateBounds({
-            ...range,
-            ...zBounds
-        });
+            // Set initial styles
+            const mat = geometry.getMaterial();
+            mat.setColors(this.theme.colorMap.start, this.theme.colorMap.end);
+            geometry.setContourColor(this.theme.contourColor);
 
-        // Set Floor Level for Contours
-        this.graphGeometry.setFloorLevel(zBounds.zMin);
+            // Add to legend
+            // We can pick a color for the text based on ID or just use theme
+            this.legend.addTrace(id, this.theme.colorMap.end);
+
+            // Update Interaction Manager target (simplistically just set to last added for now)
+            this.interactionManager.setTarget(geometry.getObject());
+        }
+
+        // Update Grids & Walls (Global for now, assuming all traces share valid domain)
+        this.gridSystem.updateBounds({ ...range, ...zBounds });
+
+        // Update Colorbar bounds
+        this.colorbar.updateBounds(zBounds.zMin, zBounds.zMax);
+
+        // Set Floor Level
+        geometry.setFloorLevel(zBounds.zMin);
 
         const data = this.computer.calculate(formula, range, resolution);
         if (data) {
-            this.graphGeometry.updateData(data, resolution);
+            geometry.updateData(data, resolution);
+            this.container?.appendChild(this.legend.getElement()); // Ensure legend is there if mounting happened
+            this.needsUpdate = true;
+        }
+    }
+
+    public removeTrace(id: string) {
+        const geometry = this.traces.get(id);
+        if (geometry) {
+            this.scene.remove(geometry.getObject());
+            this.scene.remove(geometry.getContourObject());
+            // Dispose geometry/material?
+            this.traces.delete(id);
+            this.legend.removeTrace(id);
+            this.needsUpdate = true;
+        }
+    }
+
+    public toggleTrace(id: string, visible: boolean) {
+        const geometry = this.traces.get(id);
+        if (geometry) {
+            geometry.getObject().visible = visible;
+            geometry.getContourObject().visible = visible;
             this.needsUpdate = true;
         }
     }
 
     public setZClipping(min: number, max: number) {
-        this.graphGeometry.getMaterial().setClipRange(min, max);
+        this.traces.forEach(trace => {
+            trace.getMaterial().setClipRange(min, max);
+        });
         this.needsUpdate = true;
     }
 
@@ -182,12 +243,7 @@ export class GraphRenderer {
             this.input.update();
 
             this.axisSystem.update(this.camera);
-            // Position-based grid fade
-            // Note: gridSystem update expects Vector3, but we can pass camera.position
             this.gridSystem.update(this.camera.position);
-
-            // Keep directional light loosely following camera for consistent illumination
-            // this.lights.directional.position.copy(this.camera.position).add(new Vector3(5,5,10));
 
             this.renderer.render(this.scene, this.camera);
             this.labelRenderer.render(this.scene, this.camera);

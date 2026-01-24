@@ -34,7 +34,7 @@
             background: #333;
             border: 1px solid #555;
             color: white;
-            width: 250px;
+            margin-bottom: 5px;
         }
 
         button {
@@ -44,15 +44,25 @@
             border: none;
             color: white;
         }
+
+        .row {
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 
 <body>
     <div id="ui">
         <h3>Graph Renderer</h3>
-        <div>
-            <input type="text" id="formula" value="sin(x) * cos(y)" />
-            <button id="renderBtn">Render</button>
+        <div class="row">
+            <input type="text" id="traceId" placeholder="Trace ID (e.g. A)" style="width: 80px;" value="A" />
+            <input type="text" id="formula" placeholder="Formula (e.g. sin(x))" value="sin(x) * cos(y)"
+                style="width: 200px;" />
+            <button id="addBtn">Add / Update Trace</button>
+        </div>
+        <div class="row">
+            <input type="text" id="removeId" placeholder="ID to Remove" style="width: 80px;" />
+            <button id="removeBtn" style="background: #ff4444;">Remove Trace</button>
         </div>
         <div style="margin-top: 10px;">
             <label>Z-Clip Min: <input type="range" id="clipMin" min="-10" max="10" step="0.1" value="-10"
@@ -78,14 +88,24 @@
                 // Wait for WASM to be fully initialized
                 await renderer.isReady();
                 console.log('✅ Renderer ready!');
-                
-                // Initial render with default expression
-                renderer.setExpression("sin(sqrt(x^2 + y^2))");
+
+                // Initial render
+                await renderer.addTrace('A', "sin(sqrt(x^2 + y^2))");
 
                 // Setup UI event handlers
-                document.getElementById('renderBtn').addEventListener('click', () => {
+                document.getElementById('addBtn').addEventListener('click', () => {
+                    const id = document.getElementById('traceId').value;
                     const val = document.getElementById('formula').value;
-                    renderer.setExpression(val);
+                    if (id && val) {
+                        renderer.addTrace(id, val);
+                    }
+                });
+
+                document.getElementById('removeBtn').addEventListener('click', () => {
+                    const id = document.getElementById('removeId').value;
+                    if (id) {
+                        renderer.removeTrace(id);
+                    }
                 });
 
                 const clipMin = document.getElementById('clipMin');
