@@ -7,6 +7,7 @@ export interface ThemeConfig {
     textColor: string;
     fontFamily: string;
     graphColor: string;
+    contourColor: string; // New option
     colorMap: {
         start: string;
         end: string;
@@ -22,6 +23,7 @@ export const DEFAULT_THEME: ThemeConfig = {
     textColor: '#ffffff',
     fontFamily: 'Inter, sans-serif',
     graphColor: '#ffffff',
+    contourColor: '#aaaaaa', // Default
     colorMap: {
         start: '#0000ff',
         end: '#ff0000',

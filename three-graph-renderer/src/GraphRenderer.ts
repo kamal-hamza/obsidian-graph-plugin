@@ -61,6 +61,7 @@ export class GraphRenderer {
 
         this.graphGeometry = new GraphGeometry();
         this.scene.add(this.graphGeometry.getObject());
+        this.scene.add(this.graphGeometry.getContourObject());
 
         this.computer = new WasmComputer(wasmFactory);
 
@@ -110,17 +111,32 @@ export class GraphRenderer {
         const mat = this.graphGeometry.getMaterial();
         mat.setColors(theme.colorMap.start, theme.colorMap.end);
 
+        // Update Contour Color
+        this.graphGeometry.setContourColor(theme.contourColor);
+
         this.needsUpdate = true;
     }
 
     public async setExpression(formula: string) {
         // Demo range
         const range = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
-        const resolution = 150; // Higher res for smoother mesh
+        // Assume Z range for bounds calculation
+        // In a real app, we'd calculate this from data or set fixed defaults
+        const zBounds = { zMin: -5, zMax: 5 };
+        const resolution = 150;
+
+        // Update Grids & Walls
+        this.gridSystem.updateBounds({
+            ...range,
+            ...zBounds
+        });
+
+        // Set Floor Level for Contours
+        this.graphGeometry.setFloorLevel(zBounds.zMin);
 
         const data = this.computer.calculate(formula, range, resolution);
         if (data) {
-            this.graphGeometry.updateData(data, resolution); // Pass resolution
+            this.graphGeometry.updateData(data, resolution);
             this.needsUpdate = true;
         }
     }
