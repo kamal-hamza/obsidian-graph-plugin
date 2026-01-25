@@ -87,10 +87,14 @@ export class GraphGeometry {
         this.contourGeometry.setAttribute('position', new BufferAttribute(flatPositions, 3));
         this.contourGeometry.setAttribute('vertexOriginalZ', new BufferAttribute(originalZ, 1));
 
-        // 3. Update Indices
+        // 3. Update Indices - LOD OPTIMIZATION
         if (this.currentResolution !== resolution) {
             this.updateIndices(resolution);
             this.currentResolution = resolution;
+
+            // This ensures Three.js re-uploads the index buffer to the GPU
+            if (this.geometry.index) this.geometry.index.needsUpdate = true;
+            if (this.contourGeometry.index) this.contourGeometry.index.needsUpdate = true;
         }
 
         // 4. Compute Normals

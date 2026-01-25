@@ -119,6 +119,11 @@ export class InteractionManager {
     public update(): boolean {
         if (!this.targetMesh || !this.camera) return false;
 
+        // Ensure raycaster precision scales with distance
+        // This prevents "missing" the graph when zoomed very far out
+        const dist = this.camera.position.length();
+        this.raycaster.params.Mesh.threshold = dist * 0.01;
+
         this.raycaster.setFromCamera(this.mouse, this.camera);
         // If we want multiple targets, we need to pass them or update logic.
         // For now, assuming single target active or simple intersection.

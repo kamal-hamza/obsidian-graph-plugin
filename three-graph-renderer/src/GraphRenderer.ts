@@ -1,4 +1,4 @@
-import { Scene, PerspectiveCamera, WebGLRenderer, Color, DirectionalLight, AmbientLight, Group } from 'three';
+import { Scene, PerspectiveCamera, WebGLRenderer, Color, DirectionalLight, AmbientLight, Group, Vector3 } from 'three';
 import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { ThemeConfig, DEFAULT_THEME } from './config/ThemeConfig';
 import { InputController } from './controls/InputController';
@@ -49,6 +49,12 @@ export class GraphRenderer {
     // State for calculated bounds
     private activeBounds: GraphBounds | undefined;
     private activeSpacing: number | undefined;
+
+    // Reactive Viewport State
+    private lastCameraPosition = new Vector3();
+    private isUpdating = false;
+    private lastUpdateBounds = { xMin: 0, xMax: 0 };
+    private currentFormula: string = ''; // Store formula for regeneration
 
     constructor(wasmFactory?: any) {
         // 1. Core Three.js Setup
@@ -166,6 +172,7 @@ export class GraphRenderer {
     }
 
     public async setExpression(formula: string) {
+        this.currentFormula = formula;
         // Backward compatibility
         await this.addTrace('default', formula);
     }
@@ -187,10 +194,15 @@ export class GraphRenderer {
         this.graphGroup.scale.set(1, 1, zScale);
     }
 
-    public async addTrace(id: string, formula: string) {
-        const resolution = 150;
+    public async addTrace(id: string, formula: string, range?: any, resolutionOverride?: number) {
+        // Determine resolution based on the size of the range
+        // Higher range = more points to keep it smooth
+        const span = (range?.xMax - range?.xMin) || 20;
+        const calcResolution = Math.min(250, Math.max(100, Math.floor(span * 10)));
+        const resolution = resolutionOverride || calcResolution;
+
         // Initial Raw Range
-        const rawRange = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
+        const rawRange = range || { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
 
         // 1. Calculate Data First
         const data = this.computer.calculate(formula, rawRange, resolution);
@@ -286,6 +298,58 @@ export class GraphRenderer {
         }
     }
 
+    private calculateLOD(span: number): number {
+        // Target: We want about 10 points per "unit" when zoomed in,
+        // but we must cap the total vertices to stay performant.
+
+        // Base resolution calculation
+        let res = Math.floor(span * 5);
+
+        // Performance Caps
+        const MIN_RES = 50;  // Enough to see the shape when far away
+        const MAX_RES = 300; // 300x300 = 90,000 vertices (safe for most GPUs)
+
+        return Math.min(MAX_RES, Math.max(MIN_RES, res));
+    }
+
+    private async updateDynamicView() {
+        if (this.isUpdating) return;
+
+        const dist = this.camera.position.length();
+        const halfSize = dist * 0.8; // Heuristic: visible box size scales with distance
+        const span = halfSize * 2;
+
+        // Only update if the view has changed by more than 20%
+        const currentSpan = this.lastUpdateBounds.xMax - this.lastUpdateBounds.xMin;
+        const changeThreshold = currentSpan * 0.2;
+
+        // Also check if we moved enough to warrant a shift, even if span is similar
+        // (For now, simplified to span check as per user request logic, 
+        // but conceptually we might want center check too)
+        if (Math.abs(span - currentSpan) < changeThreshold && currentSpan > 0) {
+            return;
+        }
+
+        this.isUpdating = true;
+
+        try {
+            const resolution = this.calculateLOD(span);
+            const dynamicRange = {
+                xMin: -halfSize, xMax: halfSize,
+                yMin: -halfSize, yMax: halfSize
+            };
+
+            // Call your existing addTrace with the new LOD resolution
+            if (this.currentFormula) {
+                await this.addTrace('default', this.currentFormula, dynamicRange, resolution);
+            }
+
+            this.lastUpdateBounds = { xMin: dynamicRange.xMin, xMax: dynamicRange.xMax };
+        } finally {
+            this.isUpdating = false;
+        }
+    }
+
     public removeTrace(id: string) {
         const geometry = this.traces.get(id);
         if (geometry) {
@@ -349,6 +413,13 @@ export class GraphRenderer {
 
         if (this.isAutoRotating) {
             this.graphGroup.rotation.z += 0.005; // Slowly spin the graph
+            this.needsUpdate = true;
+        }
+
+        // Check if camera moved significantly
+        if (this.camera.position.distanceTo(this.lastCameraPosition) > 0.1) {
+            this.updateDynamicView(); // Recalculate everything based on new frustum
+            this.lastCameraPosition.copy(this.camera.position);
             this.needsUpdate = true;
         }
 
