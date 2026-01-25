@@ -52,9 +52,14 @@ export class GraphRenderer {
 
     // Reactive Viewport State
     private lastCameraPosition = new Vector3();
+    private lastCameraTarget = new Vector3();
     private isUpdating = false;
     private lastUpdateBounds = { xMin: 0, xMax: 0, yMin: 0, yMax: 0 };
     private currentFormula: string = ''; // Store formula for regeneration
+
+    private updateDebounceTimer: number | null = null;
+    private readonly UPDATE_DEBOUNCE_MS = 150;
+    private updateRequestId = 0;
 
     constructor(wasmFactory?: any) {
         // 1. Core Three.js Setup
@@ -173,10 +178,10 @@ export class GraphRenderer {
 
     public async setExpression(formula: string) {
         this.currentFormula = formula;
-        
+
         // Reset dynamic view tracking to force an update
         this.lastUpdateBounds = { xMin: 0, xMax: 0, yMin: 0, yMax: 0 };
-        
+
         // Use updateDynamicView to handle the initial render with correct camera-based bounds
         await this.updateDynamicView();
     }
@@ -199,6 +204,11 @@ export class GraphRenderer {
     }
 
     public async addTrace(id: string, formula: string, range?: any, resolutionOverride?: number) {
+        // Capture formula for dynamic regeneration
+        if (id === 'default' || !this.currentFormula) {
+            this.currentFormula = formula;
+        }
+
         // Determine resolution based on the size of the range
         // Higher range = more points to keep it smooth
         const span = (range?.xMax - range?.xMin) || 20;
@@ -314,62 +324,120 @@ export class GraphRenderer {
     }
 
     private calculateLOD(span: number): number {
-        // Target: We want about 10 points per "unit" when zoomed in,
-        // but we must cap the total vertices to stay performant.
+        // Desmos-style: More points when zoomed in, fewer when zoomed out
+        // Base resolution at span=20 (default view)
+        const baseSpan = 20;
+        const baseRes = 100;
 
-        // Base resolution calculation
-        let res = Math.floor(span * 5);
+        // Logarithmic scaling: resolution doubles when span halves
+        const scaleFactor = Math.log2(baseSpan / span);
+        let res = Math.floor(baseRes * Math.pow(2, scaleFactor * 0.5));
 
-        // Performance Caps
-        const MIN_RES = 50;  // Enough to see the shape when far away
-        const MAX_RES = 300; // 300x300 = 90,000 vertices (safe for most GPUs)
+        // Enforce limits
+        const MIN_RES = 30;   // Minimum for recognizable shape
+        const MAX_RES = 400;  // Maximum for performance (400x400 = 160k vertices)
 
         return Math.min(MAX_RES, Math.max(MIN_RES, res));
     }
 
-    private async updateDynamicView() {
-        if (this.isUpdating) return;
-
-        // 1. Better heuristic for visible area
-        const target = this.input.controls.target;
-        const dist = this.camera.position.distanceTo(target);
-
-        // Larger multiplier to ensure coverage when zooming out
-        const halfSize = Math.max(dist * 2.0, 20);
-        const span = halfSize * 2;
-
-        // 2. Check if we need to update (Zoom change OR Pan change)
-        const currentSpan = this.lastUpdateBounds.xMax - this.lastUpdateBounds.xMin;
-        const currentCenterX = (this.lastUpdateBounds.xMax + this.lastUpdateBounds.xMin) / 2;
-        const currentCenterY = (this.lastUpdateBounds.yMax + this.lastUpdateBounds.yMin) / 2;
-
-        const zoomChanged = Math.abs(span - currentSpan) > currentSpan * 0.05;
-        const posChanged = Math.sqrt(Math.pow(target.x - currentCenterX, 2) + Math.pow(target.y - currentCenterY, 2)) > span * 0.1;
-
-        if (!zoomChanged && !posChanged && currentSpan > 0) {
+    private scheduleUpdate() {
+        if (this.isUpdating) {
+            console.log('[GraphRenderer] Update skipped: Already updating');
             return;
         }
 
+        if (this.updateDebounceTimer !== null) {
+            window.clearTimeout(this.updateDebounceTimer);
+        }
+
+        this.updateDebounceTimer = window.setTimeout(() => {
+            console.log('[GraphRenderer] Debounce fired, calling updateDynamicView');
+            this.updateDynamicView();
+            this.updateDebounceTimer = null;
+        }, this.UPDATE_DEBOUNCE_MS);
+    }
+
+    private async updateDynamicView() {
+        console.log('[GraphRenderer] updateDynamicView started');
+        if (this.isUpdating) return;
         this.isUpdating = true;
+        const requestId = ++this.updateRequestId;
 
         try {
-            const resolution = this.calculateLOD(span);
-            const dynamicRange = {
-                xMin: target.x - halfSize, xMax: target.x + halfSize,
-                yMin: target.y - halfSize, yMax: target.y + halfSize
-            };
+            const target = this.input.controls.target;
+            const dist = this.camera.position.distanceTo(target);
 
-            // Call your existing addTrace with the new LOD resolution
-            if (this.currentFormula) {
-                await this.addTrace('default', this.currentFormula, dynamicRange, resolution);
+            // Calculate visible frustum bounds at z=0 plane
+            const vFOV = (this.camera as PerspectiveCamera).fov * Math.PI / 180;
+            const aspect = (this.camera as PerspectiveCamera).aspect;
+
+            // Calculate visible height and width at the target distance
+            const visibleHeight = 2 * Math.tan(vFOV / 2) * dist;
+            const visibleWidth = visibleHeight * aspect;
+
+            console.log(`[GraphRenderer] Frustum Calc: dist=${dist.toFixed(2)}, vH=${visibleHeight.toFixed(2)}, vW=${visibleWidth.toFixed(2)}`);
+
+            // Add buffer (e.g., 50% extra) to ensure smooth transitions
+            const bufferFactor = 1.5;
+            const halfWidth = (visibleWidth / 2) * bufferFactor;
+            const halfHeight = (visibleHeight / 2) * bufferFactor;
+
+            const span = Math.max(halfWidth, halfHeight) * 2;
+            console.log(`[GraphRenderer] Calculated span: ${span.toFixed(2)}`);
+
+            // Check if update needed (Hysteresis)
+            const currentSpan = this.lastUpdateBounds.xMax - this.lastUpdateBounds.xMin;
+            const currentCenterX = (this.lastUpdateBounds.xMax + this.lastUpdateBounds.xMin) / 2;
+            const currentCenterY = (this.lastUpdateBounds.yMax + this.lastUpdateBounds.yMin) / 2;
+
+            const zoomChanged = Math.abs(span - currentSpan) > currentSpan * 0.3; // 30% change
+            const posChanged = Math.sqrt(
+                Math.pow(target.x - currentCenterX, 2) +
+                Math.pow(target.y - currentCenterY, 2)
+            ) > span * 0.2; // 20% of visible area
+
+            console.log(`[GraphRenderer] Change Check: currentSpan=${currentSpan.toFixed(2)}, zoomChanged=${zoomChanged}, posChanged=${posChanged}`);
+
+            if (!zoomChanged && !posChanged && currentSpan > 0) {
+                console.log('[GraphRenderer] No significant change, skipping update');
+                return;
             }
 
-            this.lastUpdateBounds = { 
+            const dynamicRange = {
+                xMin: target.x - halfWidth,
+                xMax: target.x + halfWidth,
+                yMin: target.y - halfHeight,
+                yMax: target.y + halfHeight
+            };
+
+            // Progressive loading: Start with low res, then refine
+            if (this.currentFormula) {
+                // Quick preview with low resolution
+                const quickRes = Math.max(30, this.calculateLOD(span) / 2);
+                console.log(`[GraphRenderer] Triggering Quick Update: res=${quickRes}, range=`, dynamicRange);
+                await this.addTrace('default', this.currentFormula, dynamicRange, quickRes);
+
+                // Then refine with full resolution after a short delay
+                setTimeout(async () => {
+                    if (this.updateRequestId !== requestId) {
+                        console.log('[GraphRenderer] Progressive update cancelled: new request pending');
+                        return;
+                    }
+                    const fullRes = this.calculateLOD(span);
+                    console.log(`[GraphRenderer] Triggering Full Update: res=${fullRes}`);
+                    await this.addTrace('default', this.currentFormula, dynamicRange, fullRes);
+                }, 100);
+            } else {
+                console.warn('[GraphRenderer] Skipping update: No currentFormula set');
+            }
+
+            this.lastUpdateBounds = {
                 xMin: dynamicRange.xMin, xMax: dynamicRange.xMax,
                 yMin: dynamicRange.yMin, yMax: dynamicRange.yMax
             };
         } finally {
             this.isUpdating = false;
+            console.log('[GraphRenderer] updateDynamicView finished');
         }
     }
 
@@ -439,10 +507,17 @@ export class GraphRenderer {
             this.needsUpdate = true;
         }
 
-        // Check if camera moved significantly
-        if (this.camera.position.distanceTo(this.lastCameraPosition) > 0.1) {
-            this.updateDynamicView(); // Recalculate everything based on new frustum
+        // Check if camera moved significantly (Pos + Target)
+        const cameraChanged = this.camera.position.distanceTo(this.lastCameraPosition) > 0.1;
+        // @ts-ignore - OrbitControls target access
+        const targetChanged = this.input.controls.target.distanceTo(this.lastCameraTarget) > 0.1;
+
+        if (cameraChanged || targetChanged) {
+            console.log(`[GraphRenderer] Camera movement detected. CamDiff: ${this.camera.position.distanceTo(this.lastCameraPosition).toFixed(3)}, TargetDiff: ${this.input.controls.target.distanceTo(this.lastCameraTarget).toFixed(3)}`);
+            this.scheduleUpdate(); // Use debounced version
             this.lastCameraPosition.copy(this.camera.position);
+            // @ts-ignore - OrbitControls target access
+            this.lastCameraTarget.copy(this.input.controls.target);
             this.needsUpdate = true;
         }
 
