@@ -53,7 +53,7 @@ export class GraphRenderer {
     // Reactive Viewport State
     private lastCameraPosition = new Vector3();
     private isUpdating = false;
-    private lastUpdateBounds = { xMin: 0, xMax: 0 };
+    private lastUpdateBounds = { xMin: 0, xMax: 0, yMin: 0, yMax: 0 };
     private currentFormula: string = ''; // Store formula for regeneration
 
     constructor(wasmFactory?: any) {
@@ -173,8 +173,12 @@ export class GraphRenderer {
 
     public async setExpression(formula: string) {
         this.currentFormula = formula;
-        // Backward compatibility
-        await this.addTrace('default', formula);
+        
+        // Reset dynamic view tracking to force an update
+        this.lastUpdateBounds = { xMin: 0, xMax: 0, yMin: 0, yMax: 0 };
+        
+        // Use updateDynamicView to handle the initial render with correct camera-based bounds
+        await this.updateDynamicView();
     }
 
     private updateAspectRatio() {
@@ -204,10 +208,22 @@ export class GraphRenderer {
         // Initial Raw Range
         const rawRange = range || { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
 
-        // 1. Calculate Data First
-        const data = this.computer.calculate(formula, rawRange, resolution);
+        // 1. Compute "Nice" Scales FIRST (Fix Edge Gaps)
+        const niceX = new NiceScale(rawRange.xMin, rawRange.xMax);
+        const niceY = new NiceScale(rawRange.yMin, rawRange.yMax);
 
-        // 2. Calculate actual Z bounds
+        // 2. Use Nice Bounds for Data Calculation
+        const calculationRange = {
+            xMin: niceX.getNiceMin(),
+            xMax: niceX.getNiceMax(),
+            yMin: niceY.getNiceMin(),
+            yMax: niceY.getNiceMax()
+        };
+
+        // 3. Calculate Data
+        const data = this.computer.calculate(formula, calculationRange, resolution);
+
+        // 4. Calculate actual Z bounds
         let calculatedMinZ = Infinity;
         let calculatedMaxZ = -Infinity;
 
@@ -226,9 +242,8 @@ export class GraphRenderer {
             calculatedMinZ -= 1; calculatedMaxZ += 1;
         }
 
-        // 3. Compute "Nice" Scales (No artificial padding)
-        const niceX = new NiceScale(rawRange.xMin, rawRange.xMax);
-        const niceY = new NiceScale(rawRange.yMin, rawRange.yMax);
+        // 5. Compute "Nice" Scale for Z
+        // Note: X and Y are already computed
         const niceZ = new NiceScale(calculatedMinZ, calculatedMaxZ);
 
         const bounds = {
@@ -262,7 +277,7 @@ export class GraphRenderer {
             this.interactionManager.setTarget(geometry.getObject());
         }
 
-        // Update data
+        // Update active bounds state
         this.activeBounds = bounds;
         this.activeSpacing = primarySpacing;
 
@@ -315,18 +330,23 @@ export class GraphRenderer {
     private async updateDynamicView() {
         if (this.isUpdating) return;
 
-        const dist = this.camera.position.length();
-        const halfSize = dist * 0.8; // Heuristic: visible box size scales with distance
+        // 1. Better heuristic for visible area
+        const target = this.input.controls.target;
+        const dist = this.camera.position.distanceTo(target);
+
+        // Larger multiplier to ensure coverage when zooming out
+        const halfSize = Math.max(dist * 2.0, 20);
         const span = halfSize * 2;
 
-        // Only update if the view has changed by more than 20%
+        // 2. Check if we need to update (Zoom change OR Pan change)
         const currentSpan = this.lastUpdateBounds.xMax - this.lastUpdateBounds.xMin;
-        const changeThreshold = currentSpan * 0.2;
+        const currentCenterX = (this.lastUpdateBounds.xMax + this.lastUpdateBounds.xMin) / 2;
+        const currentCenterY = (this.lastUpdateBounds.yMax + this.lastUpdateBounds.yMin) / 2;
 
-        // Also check if we moved enough to warrant a shift, even if span is similar
-        // (For now, simplified to span check as per user request logic, 
-        // but conceptually we might want center check too)
-        if (Math.abs(span - currentSpan) < changeThreshold && currentSpan > 0) {
+        const zoomChanged = Math.abs(span - currentSpan) > currentSpan * 0.05;
+        const posChanged = Math.sqrt(Math.pow(target.x - currentCenterX, 2) + Math.pow(target.y - currentCenterY, 2)) > span * 0.1;
+
+        if (!zoomChanged && !posChanged && currentSpan > 0) {
             return;
         }
 
@@ -335,8 +355,8 @@ export class GraphRenderer {
         try {
             const resolution = this.calculateLOD(span);
             const dynamicRange = {
-                xMin: -halfSize, xMax: halfSize,
-                yMin: -halfSize, yMax: halfSize
+                xMin: target.x - halfSize, xMax: target.x + halfSize,
+                yMin: target.y - halfSize, yMax: target.y + halfSize
             };
 
             // Call your existing addTrace with the new LOD resolution
@@ -344,7 +364,10 @@ export class GraphRenderer {
                 await this.addTrace('default', this.currentFormula, dynamicRange, resolution);
             }
 
-            this.lastUpdateBounds = { xMin: dynamicRange.xMin, xMax: dynamicRange.xMax };
+            this.lastUpdateBounds = { 
+                xMin: dynamicRange.xMin, xMax: dynamicRange.xMax,
+                yMin: dynamicRange.yMin, yMax: dynamicRange.yMax
+            };
         } finally {
             this.isUpdating = false;
         }
