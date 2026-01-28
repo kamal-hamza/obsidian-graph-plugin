@@ -211,38 +211,10 @@ export class GraphRenderer {
     }
 
     private updateAspectRatio() {
-        if (!this.activeBounds) return;
-    
-        // Calculate the absolute dimensions of the bounding box
-        const xSize = Math.abs(this.activeBounds.xMax - this.activeBounds.xMin);
-        const ySize = Math.abs(this.activeBounds.yMax - this.activeBounds.yMin);
-        const zSize = Math.abs(this.activeBounds.zMax - this.activeBounds.zMin);
-    
-        // --- SAFETY CHECK FOR FLAT GRAPHS ---
-        // If the graph is perfectly flat (zSize is near zero), prevent divide-by-zero errors.
-        // We set scale to (1,1,1) to ensure it reaches the edges and doesn't disappear.
-        if (zSize < 1e-9) {
-             this.graphGroup.scale.set(1, 1, 1);
-             return;
-        }
-    
-        // --- VERTICAL (Z-AXIS) CONTROL ---
-        // Find the widest horizontal dimension.
-        const maxXY = Math.max(xSize, ySize);
-        
-        // We want to limit the visual height of the graph so tall spikes don't dominate the view.
-        // Rule: The visual height (targetZ) should not exceed 50% of the graph's width.
-        const targetZ = Math.min(zSize, maxXY * 0.5); 
-        
-        // Calculate the scaling factor needed to squash/stretch current zSize to targetZ.
-        const zScale = targetZ / zSize;
-    
-    
-        // --- THE CRITICAL FIX ---
-        // We apply the calculated Z-scale to visually manage height.
-        // CRUCIALLY, we force X and Y scale to exactly 1.0. 
-        // This ensures the geometry vertices line up perfectly with the grid walls.
-        this.graphGroup.scale.set(1, 1, zScale);
+        // To maintain a perfect cubic sense of scale, we force a 1:1:1 visual scale.
+        // This ensures that the box stays a cube and the axes are visually equal.
+        // The uniform cubic bounds calculated in addTrace() already include appropriate padding.
+        this.graphGroup.scale.set(1, 1, 1);
     }
 
     public async addTrace(
@@ -268,49 +240,48 @@ export class GraphRenderer {
         // Initial Raw Range
         const rawRange = range || { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
 
-        // 1. Compute "Nice" Scales FIRST (Fix Edge Gaps)
-        const niceX = new NiceScale(rawRange.xMin, rawRange.xMax);
-        const niceY = new NiceScale(rawRange.yMin, rawRange.yMax);
-
-        // 2. Use Nice Bounds for Data Calculation
-        const calculationRange = {
-            xMin: niceX.getNiceMin(),
-            xMax: niceX.getNiceMax(),
-            yMin: niceY.getNiceMin(),
-            yMax: niceY.getNiceMax(),
-        };
-
-        // 3. Calculate Data
-        const data = this.computer.calculate(
-            formula,
-            calculationRange,
-            resolution,
-        );
-
-        // 4. Calculate actual Z bounds
+        // 1. Calculate initial data to find Z-range
+        const initialData = this.computer.calculate(formula, rawRange, 100);
         let calculatedMinZ = Infinity;
         let calculatedMaxZ = -Infinity;
 
-        if (data) {
-            for (let i = 0; i < data.length; i += 3) {
-                const z = data[i + 2];
+        if (initialData) {
+            for (let i = 0; i < initialData.length; i += 3) {
+                const z = initialData[i + 2];
                 if (z < calculatedMinZ) calculatedMinZ = z;
                 if (z > calculatedMaxZ) calculatedMaxZ = z;
             }
         }
 
-        // Handle edge case where data is empty or flat
-        if (calculatedMinZ === Infinity || calculatedMaxZ === -Infinity) {
+        // Fallbacks for flat/empty data
+        if (calculatedMinZ === Infinity) {
             calculatedMinZ = -1;
             calculatedMaxZ = 1;
-        } else if (Math.abs(calculatedMaxZ - calculatedMinZ) < 1e-10) {
+        }
+        if (Math.abs(calculatedMaxZ - calculatedMinZ) < 1e-5) {
             calculatedMinZ -= 1;
             calculatedMaxZ += 1;
         }
 
-        // 5. Compute "Nice" Scale for Z
-        // Note: X and Y are already computed
-        const niceZ = new NiceScale(calculatedMinZ, calculatedMaxZ);
+        // 2. CALCULATE UNIFORM CUBIC BOUNDS - always use for equal-length axes
+        const xSpan = Math.abs(rawRange.xMax - rawRange.xMin);
+        const ySpan = Math.abs(rawRange.yMax - rawRange.yMin);
+        const zSpan = Math.abs(calculatedMaxZ - calculatedMinZ);
+
+        // Find the largest span and add 20% padding
+        const maxSpan = Math.max(xSpan, ySpan, zSpan) * 1.2;
+
+        const centerX = (rawRange.xMax + rawRange.xMin) / 2;
+        const centerY = (rawRange.yMax + rawRange.yMin) / 2;
+        const centerZ = (calculatedMaxZ + calculatedMinZ) / 2;
+
+        // Apply the same span to all axes for cubic bounding box
+        const niceX = new NiceScale(centerX - maxSpan / 2, centerX + maxSpan / 2);
+        const niceY = new NiceScale(centerY - maxSpan / 2, centerY + maxSpan / 2);
+        const niceZ = new NiceScale(centerZ - maxSpan / 2, centerZ + maxSpan / 2);
+
+        // Create separate nice scale for actual data Z-range (for gradient colors)
+        const dataZScale = new NiceScale(calculatedMinZ, calculatedMaxZ);
 
         const bounds = {
             xMin: niceX.getNiceMin(),
@@ -320,6 +291,15 @@ export class GraphRenderer {
             zMin: niceZ.getNiceMin(),
             zMax: niceZ.getNiceMax(),
         };
+
+        // Store the actual data Z-range for gradient mapping
+        const dataZBounds = {
+            zMin: dataZScale.getNiceMin(),
+            zMax: dataZScale.getNiceMax(),
+        };
+
+        // 3. Calculate data using the determined bounds
+        const data = this.computer.calculate(formula, bounds, resolution);
 
         // Use largest spacing for uniform grid/ticks? Or independent?
         const primarySpacing = niceX.getTickSpacing();
@@ -361,22 +341,23 @@ export class GraphRenderer {
         // Update Interaction Manager
         this.interactionManager.updateBounds(bounds);
 
-        // Update Colorbar bounds (using nice z bounds)
-        this.colorbar.updateBounds(bounds.zMin, bounds.zMax);
+        // Update Colorbar bounds (using actual data z bounds for gradient)
+        this.colorbar.updateBounds(dataZBounds.zMin, dataZBounds.zMax);
 
         // Set Floor Level
         geometry.setFloorLevel(bounds.zMin);
 
-        // Update Aspect Ratio
+        // Update Aspect Ratio (force 1:1:1 for cubic scale)
         this.updateAspectRatio();
 
         // Update data only if it is valid AND not empty
         if (data && data.length > 0) {
             geometry.updateData(data, resolution);
             
-            // IMPORTANT: Also update the material's gradient bounds so the colors match the new data
+            // IMPORTANT: Use actual data Z-range for gradient colors, not cubic bounds
+            // This ensures colors map to the real data range, not the expanded cubic box
             const mat = geometry.getMaterial();
-            mat.setZRange(bounds.zMin, bounds.zMax);
+            mat.setZRange(dataZBounds.zMin, dataZBounds.zMax);
 
             this.container?.appendChild(this.legend.getElement()); // Ensure legend is there if mounting happened
             this.needsUpdate = true;
