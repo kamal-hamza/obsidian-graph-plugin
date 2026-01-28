@@ -1,15 +1,24 @@
-import { Scene, PerspectiveCamera, WebGLRenderer, Color, DirectionalLight, AmbientLight, Group, Vector3 } from 'three';
-import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
-import { ThemeConfig, DEFAULT_THEME } from './config/ThemeConfig';
-import { InputController } from './controls/InputController';
-import { InteractionManager } from './controls/InteractionManager';
-import { AxisSystem } from './axes/AxisSystem';
-import { GridSystem } from './axes/GridSystem';
-import { GraphGeometry } from './geometry/GraphGeometry';
-import { WasmComputer } from './wasm/WasmComputer';
-import { Legend } from './ui/Legend';
-import { Colorbar } from './ui/Colorbar';
-import { NiceScale } from './utils/NiceScale';
+import {
+    Scene,
+    PerspectiveCamera,
+    WebGLRenderer,
+    Color,
+    DirectionalLight,
+    AmbientLight,
+    Group,
+    Vector3,
+} from "three";
+import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
+import { ThemeConfig, DEFAULT_THEME } from "./config/ThemeConfig";
+import { InputController } from "./controls/InputController";
+import { InteractionManager } from "./controls/InteractionManager";
+import { AxisSystem } from "./axes/AxisSystem";
+import { GridSystem } from "./axes/GridSystem";
+import { GraphGeometry } from "./geometry/GraphGeometry";
+import { WasmComputer } from "./wasm/WasmComputer";
+import { Legend } from "./ui/Legend";
+import { Colorbar } from "./ui/Colorbar";
+import { NiceScale } from "./utils/NiceScale";
 
 export interface GraphBounds {
     xMin: number;
@@ -44,7 +53,7 @@ export class GraphRenderer {
     private legend: Legend;
     private colorbar: Colorbar;
 
-    private lights: { ambient: AmbientLight, directional: DirectionalLight };
+    private lights: { ambient: AmbientLight; directional: DirectionalLight };
 
     // State for calculated bounds
     private activeBounds: GraphBounds | undefined;
@@ -55,11 +64,11 @@ export class GraphRenderer {
     private lastCameraTarget = new Vector3();
     private isUpdating = false;
     private lastUpdateBounds = { xMin: 0, xMax: 0, yMin: 0, yMax: 0 };
-    private currentFormula: string = ''; // Store formula for regeneration
+    private currentFormula: string = ""; // Store formula for regeneration
 
     private updateDebounceTimer: number | null = null;
-    private readonly UPDATE_DEBOUNCE_MS = 150;
-    private updateRequestId = 0;
+    // Wait for a 400ms pause in movement before regenerating
+    private readonly UPDATE_DEBOUNCE_MS = 400;
 
     constructor(wasmFactory?: any) {
         // 1. Core Three.js Setup
@@ -71,20 +80,23 @@ export class GraphRenderer {
 
         this.camera = new PerspectiveCamera(60, 1, 0.1, 50000);
         this.camera.position.set(20, 20, 20); // Initial view
-        this.camera.up.set(0, 0, 1); // Z-up setup 
+        this.camera.up.set(0, 0, 1); // Z-up setup
 
-        this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        this.renderer = new WebGLRenderer({
+            antialias: true,
+            powerPreference: "high-performance",
+        });
         this.renderer.setPixelRatio(window.devicePixelRatio);
 
         this.labelRenderer = new CSS2DRenderer();
-        this.labelRenderer.domElement.style.position = 'absolute';
-        this.labelRenderer.domElement.style.top = '0px';
-        this.labelRenderer.domElement.style.pointerEvents = 'none';
+        this.labelRenderer.domElement.style.position = "absolute";
+        this.labelRenderer.domElement.style.top = "0px";
+        this.labelRenderer.domElement.style.pointerEvents = "none";
 
         // 2. Lighting (New)
         this.lights = {
             ambient: new AmbientLight(0xffffff, 0.6), // Soft white light
-            directional: new DirectionalLight(0xffffff, 0.8)
+            directional: new DirectionalLight(0xffffff, 0.8),
         };
         this.lights.directional.position.set(10, 20, 30);
         this.scene.add(this.lights.ambient);
@@ -92,7 +104,9 @@ export class GraphRenderer {
 
         // 3. Systems
         this.input = new InputController(this.camera, this.renderer);
-        this.input.controls.addEventListener('change', () => { this.needsUpdate = true; });
+        this.input.controls.addEventListener("change", () => {
+            this.needsUpdate = true;
+        });
 
         this.axisSystem = new AxisSystem(this.graphGroup, this.theme);
         this.gridSystem = new GridSystem(this.graphGroup, this.theme);
@@ -102,11 +116,18 @@ export class GraphRenderer {
         this.legend.setCallback((id, visible) => this.toggleTrace(id, visible));
 
         this.colorbar = new Colorbar();
-        this.colorbar.updateColors(this.theme.colorMap.start, this.theme.colorMap.end);
+        this.colorbar.updateColors(
+            this.theme.colorMap.start,
+            this.theme.colorMap.end,
+        );
 
         // Initialize Interaction Manager
-        this.interactionManager = new InteractionManager(this.camera, this.scene, this.renderer.domElement);
-        // Note: InteractionManager target will be set when adding traces if we want to hover, 
+        this.interactionManager = new InteractionManager(
+            this.camera,
+            this.scene,
+            this.renderer.domElement,
+        );
+        // Note: InteractionManager target will be set when adding traces if we want to hover,
         // but currently it handles a single mesh or needs modification to handle multiple.
         // For now, let's just not set a specific target or handle it in addTrace.
 
@@ -124,10 +145,13 @@ export class GraphRenderer {
 
     public mount(container: HTMLElement) {
         this.container = container;
-        container.style.position = 'relative';
+        container.style.position = "relative";
 
         this.renderer.setSize(container.clientWidth, container.clientHeight);
-        this.labelRenderer.setSize(container.clientWidth, container.clientHeight);
+        this.labelRenderer.setSize(
+            container.clientWidth,
+            container.clientHeight,
+        );
 
         container.appendChild(this.renderer.domElement);
         container.appendChild(this.labelRenderer.domElement);
@@ -167,7 +191,7 @@ export class GraphRenderer {
         this.colorbar.updateColors(theme.colorMap.start, theme.colorMap.end);
 
         // Update all traces
-        this.traces.forEach(trace => {
+        this.traces.forEach((trace) => {
             const mat = trace.getMaterial();
             mat.setColors(theme.colorMap.start, theme.colorMap.end);
             trace.setContourColor(theme.contourColor);
@@ -188,31 +212,57 @@ export class GraphRenderer {
 
     private updateAspectRatio() {
         if (!this.activeBounds) return;
-
+    
+        // Calculate the absolute dimensions of the bounding box
         const xSize = Math.abs(this.activeBounds.xMax - this.activeBounds.xMin);
         const ySize = Math.abs(this.activeBounds.yMax - this.activeBounds.yMin);
         const zSize = Math.abs(this.activeBounds.zMax - this.activeBounds.zMin);
-
-        if (zSize < 1e-9) return;
-
+    
+        // --- SAFETY CHECK FOR FLAT GRAPHS ---
+        // If the graph is perfectly flat (zSize is near zero), prevent divide-by-zero errors.
+        // We set scale to (1,1,1) to ensure it reaches the edges and doesn't disappear.
+        if (zSize < 1e-9) {
+             this.graphGroup.scale.set(1, 1, 1);
+             return;
+        }
+    
+        // --- VERTICAL (Z-AXIS) CONTROL ---
+        // Find the widest horizontal dimension.
         const maxXY = Math.max(xSize, ySize);
-        // Target Z visual size: at least 50% of the max dimension
-        const targetZ = Math.max(zSize, maxXY * 0.5);
+        
+        // We want to limit the visual height of the graph so tall spikes don't dominate the view.
+        // Rule: The visual height (targetZ) should not exceed 50% of the graph's width.
+        const targetZ = Math.min(zSize, maxXY * 0.5); 
+        
+        // Calculate the scaling factor needed to squash/stretch current zSize to targetZ.
         const zScale = targetZ / zSize;
-
+    
+    
+        // --- THE CRITICAL FIX ---
+        // We apply the calculated Z-scale to visually manage height.
+        // CRUCIALLY, we force X and Y scale to exactly 1.0. 
+        // This ensures the geometry vertices line up perfectly with the grid walls.
         this.graphGroup.scale.set(1, 1, zScale);
     }
 
-    public async addTrace(id: string, formula: string, range?: any, resolutionOverride?: number) {
+    public async addTrace(
+        id: string,
+        formula: string,
+        range?: any,
+        resolutionOverride?: number,
+    ) {
         // Capture formula for dynamic regeneration
-        if (id === 'default' || !this.currentFormula) {
+        if (id === "default" || !this.currentFormula) {
             this.currentFormula = formula;
         }
 
         // Determine resolution based on the size of the range
         // Higher range = more points to keep it smooth
-        const span = (range?.xMax - range?.xMin) || 20;
-        const calcResolution = Math.min(250, Math.max(100, Math.floor(span * 10)));
+        const span = range?.xMax - range?.xMin || 20;
+        const calcResolution = Math.min(
+            250,
+            Math.max(100, Math.floor(span * 10)),
+        );
         const resolution = resolutionOverride || calcResolution;
 
         // Initial Raw Range
@@ -227,11 +277,15 @@ export class GraphRenderer {
             xMin: niceX.getNiceMin(),
             xMax: niceX.getNiceMax(),
             yMin: niceY.getNiceMin(),
-            yMax: niceY.getNiceMax()
+            yMax: niceY.getNiceMax(),
         };
 
         // 3. Calculate Data
-        const data = this.computer.calculate(formula, calculationRange, resolution);
+        const data = this.computer.calculate(
+            formula,
+            calculationRange,
+            resolution,
+        );
 
         // 4. Calculate actual Z bounds
         let calculatedMinZ = Infinity;
@@ -247,9 +301,11 @@ export class GraphRenderer {
 
         // Handle edge case where data is empty or flat
         if (calculatedMinZ === Infinity || calculatedMaxZ === -Infinity) {
-            calculatedMinZ = -1; calculatedMaxZ = 1;
+            calculatedMinZ = -1;
+            calculatedMaxZ = 1;
         } else if (Math.abs(calculatedMaxZ - calculatedMinZ) < 1e-10) {
-            calculatedMinZ -= 1; calculatedMaxZ += 1;
+            calculatedMinZ -= 1;
+            calculatedMaxZ += 1;
         }
 
         // 5. Compute "Nice" Scale for Z
@@ -262,7 +318,7 @@ export class GraphRenderer {
             yMin: niceY.getNiceMin(),
             yMax: niceY.getNiceMax(),
             zMin: niceZ.getNiceMin(),
-            zMax: niceZ.getNiceMax()
+            zMax: niceZ.getNiceMax(),
         };
 
         // Use largest spacing for uniform grid/ticks? Or independent?
@@ -295,7 +351,7 @@ export class GraphRenderer {
         const ticks = {
             x: niceX.getTicks(),
             y: niceY.getTicks(),
-            z: niceZ.getTicks()
+            z: niceZ.getTicks(),
         };
 
         // Update Grids & Walls
@@ -314,35 +370,43 @@ export class GraphRenderer {
         // Update Aspect Ratio
         this.updateAspectRatio();
 
-
-        // Update data
-        if (data) {
+        // Update data only if it is valid AND not empty
+        if (data && data.length > 0) {
             geometry.updateData(data, resolution);
+            
+            // IMPORTANT: Also update the material's gradient bounds so the colors match the new data
+            const mat = geometry.getMaterial();
+            mat.setZRange(bounds.zMin, bounds.zMax);
+
             this.container?.appendChild(this.legend.getElement()); // Ensure legend is there if mounting happened
             this.needsUpdate = true;
+        } else {
+            console.warn(`[GraphRenderer] Trace update skipped: WASM returned ${data ? 'empty' : 'null'} data.`);
         }
     }
 
     private calculateLOD(span: number): number {
-        // Desmos-style: More points when zoomed in, fewer when zoomed out
-        // Base resolution at span=20 (default view)
-        const baseSpan = 20;
-        const baseRes = 100;
+        let resolution: number;
 
-        // Logarithmic scaling: resolution doubles when span halves
-        const scaleFactor = Math.log2(baseSpan / span);
-        let res = Math.floor(baseRes * Math.pow(2, scaleFactor * 0.5));
+        if (span < 10) {
+            // Ultra-close zoom: Use very high density (500x500 grid)
+            resolution = 500;
+        } else if (span < 30) {
+            resolution = 400;
+        } else if (span < 100) {
+            resolution = 300;
+        } else if (span < 500) {
+            resolution = 250;
+        } else {
+            resolution = 200;
+        }
 
-        // Enforce limits
-        const MIN_RES = 30;   // Minimum for recognizable shape
-        const MAX_RES = 400;  // Maximum for performance (400x400 = 160k vertices)
-
-        return Math.min(MAX_RES, Math.max(MIN_RES, res));
+        return Math.max(150, resolution);
     }
 
     private scheduleUpdate() {
         if (this.isUpdating) {
-            console.log('[GraphRenderer] Update skipped: Already updating');
+            console.log("[GraphRenderer] Update skipped: Already updating");
             return;
         }
 
@@ -351,34 +415,39 @@ export class GraphRenderer {
         }
 
         this.updateDebounceTimer = window.setTimeout(() => {
-            console.log('[GraphRenderer] Debounce fired, calling updateDynamicView');
+            console.log(
+                "[GraphRenderer] Debounce fired, calling updateDynamicView",
+            );
             this.updateDynamicView();
             this.updateDebounceTimer = null;
         }, this.UPDATE_DEBOUNCE_MS);
     }
 
     private async updateDynamicView() {
-        console.log('[GraphRenderer] updateDynamicView started');
+        console.log("[GraphRenderer] updateDynamicView started");
         if (this.isUpdating) return;
         this.isUpdating = true;
-        const requestId = ++this.updateRequestId;
 
         try {
             const target = this.input.controls.target;
             const dist = this.camera.position.distanceTo(target);
 
             // Calculate visible frustum bounds at z=0 plane
-            const vFOV = (this.camera as PerspectiveCamera).fov * Math.PI / 180;
+            const vFOV =
+                ((this.camera as PerspectiveCamera).fov * Math.PI) / 180;
             const aspect = (this.camera as PerspectiveCamera).aspect;
 
             // Calculate visible height and width at the target distance
             const visibleHeight = 2 * Math.tan(vFOV / 2) * dist;
             const visibleWidth = visibleHeight * aspect;
 
-            console.log(`[GraphRenderer] Frustum Calc: dist=${dist.toFixed(2)}, vH=${visibleHeight.toFixed(2)}, vW=${visibleWidth.toFixed(2)}`);
+            console.log(
+                `[GraphRenderer] Frustum Calc: dist=${dist.toFixed(2)}, vH=${visibleHeight.toFixed(2)}, vW=${visibleWidth.toFixed(2)}`,
+            );
 
-            // Add buffer (e.g., 50% extra) to ensure smooth transitions
-            const bufferFactor = 1.5;
+            // USE BUFFER TO CREATE MARGINS
+            // 0.8 means the graph will always fill 80% of the view upon regeneration.
+            const bufferFactor = 0.5;
             const halfWidth = (visibleWidth / 2) * bufferFactor;
             const halfHeight = (visibleHeight / 2) * bufferFactor;
 
@@ -386,20 +455,38 @@ export class GraphRenderer {
             console.log(`[GraphRenderer] Calculated span: ${span.toFixed(2)}`);
 
             // Check if update needed (Hysteresis)
-            const currentSpan = this.lastUpdateBounds.xMax - this.lastUpdateBounds.xMin;
-            const currentCenterX = (this.lastUpdateBounds.xMax + this.lastUpdateBounds.xMin) / 2;
-            const currentCenterY = (this.lastUpdateBounds.yMax + this.lastUpdateBounds.yMin) / 2;
+            const currentSpan =
+                this.lastUpdateBounds.xMax - this.lastUpdateBounds.xMin;
+            const currentCenterX =
+                (this.lastUpdateBounds.xMax + this.lastUpdateBounds.xMin) / 2;
+            const currentCenterY =
+                (this.lastUpdateBounds.yMax + this.lastUpdateBounds.yMin) / 2;
 
-            const zoomChanged = Math.abs(span - currentSpan) > currentSpan * 0.3; // 30% change
-            const posChanged = Math.sqrt(
-                Math.pow(target.x - currentCenterX, 2) +
-                Math.pow(target.y - currentCenterY, 2)
-            ) > span * 0.2; // 20% of visible area
+            // REFINED TRIGGER LOGIC
+            // 1. Zoom Out: Regenerate if graph shrinks to < 40% of the screen (span > currentSpan * 2.5)
+            const zoomOutTrigger = span > currentSpan * 2.5;
 
-            console.log(`[GraphRenderer] Change Check: currentSpan=${currentSpan.toFixed(2)}, zoomChanged=${zoomChanged}, posChanged=${posChanged}`);
+            // 2. Zoom In: Regenerate if we are seeing less than 50% of the current graph (span < currentSpan * 0.5)
+            // This ensures we get higher resolution before it looks "pixelated."
+            const zoomInTrigger = span < currentSpan * 0.5;
+
+            const zoomChanged = zoomInTrigger || zoomOutTrigger;
+
+            const posChanged =
+                Math.sqrt(
+                    Math.pow(target.x - currentCenterX, 2) +
+                        Math.pow(target.y - currentCenterY, 2),
+                ) >
+                span * 0.2; // 20% of visible area
+
+            console.log(
+                `[GraphRenderer] Change Check: currentSpan=${currentSpan.toFixed(2)}, zoomChanged=${zoomChanged}, posChanged=${posChanged}`,
+            );
 
             if (!zoomChanged && !posChanged && currentSpan > 0) {
-                console.log('[GraphRenderer] No significant change, skipping update');
+                console.log(
+                    "[GraphRenderer] No significant change, skipping update",
+                );
                 return;
             }
 
@@ -407,37 +494,40 @@ export class GraphRenderer {
                 xMin: target.x - halfWidth,
                 xMax: target.x + halfWidth,
                 yMin: target.y - halfHeight,
-                yMax: target.y + halfHeight
+                yMax: target.y + halfHeight,
             };
 
-            // Progressive loading: Start with low res, then refine
+            // Perform single high-resolution update
             if (this.currentFormula) {
-                // Quick preview with low resolution
-                const quickRes = Math.max(30, this.calculateLOD(span) / 2);
-                console.log(`[GraphRenderer] Triggering Quick Update: res=${quickRes}, range=`, dynamicRange);
-                await this.addTrace('default', this.currentFormula, dynamicRange, quickRes);
-
-                // Then refine with full resolution after a short delay
-                setTimeout(async () => {
-                    if (this.updateRequestId !== requestId) {
-                        console.log('[GraphRenderer] Progressive update cancelled: new request pending');
-                        return;
-                    }
-                    const fullRes = this.calculateLOD(span);
-                    console.log(`[GraphRenderer] Triggering Full Update: res=${fullRes}`);
-                    await this.addTrace('default', this.currentFormula, dynamicRange, fullRes);
-                }, 100);
+                // Determine the ideal resolution once
+                const res = this.calculateLOD(span);
+                console.log(
+                    `[GraphRenderer] Triggering Update: res=${res}, range=`,
+                    dynamicRange,
+                );
+                
+                // Perform the update directly (no setTimeout to avoid race conditions)
+                await this.addTrace(
+                    "default",
+                    this.currentFormula,
+                    dynamicRange,
+                    res,
+                );
             } else {
-                console.warn('[GraphRenderer] Skipping update: No currentFormula set');
+                console.warn(
+                    "[GraphRenderer] Skipping update: No currentFormula set",
+                );
             }
 
             this.lastUpdateBounds = {
-                xMin: dynamicRange.xMin, xMax: dynamicRange.xMax,
-                yMin: dynamicRange.yMin, yMax: dynamicRange.yMax
+                xMin: dynamicRange.xMin,
+                xMax: dynamicRange.xMax,
+                yMin: dynamicRange.yMin,
+                yMax: dynamicRange.yMax,
             };
         } finally {
             this.isUpdating = false;
-            console.log('[GraphRenderer] updateDynamicView finished');
+            console.log("[GraphRenderer] updateDynamicView finished");
         }
     }
 
@@ -463,21 +553,21 @@ export class GraphRenderer {
     }
 
     public setZClipping(min: number, max: number) {
-        this.traces.forEach(trace => {
+        this.traces.forEach((trace) => {
             trace.getMaterial().setClipRange(min, max);
         });
         this.needsUpdate = true;
     }
 
-    public setView(type: 'top' | 'side' | 'isometric') {
+    public setView(type: "top" | "side" | "isometric") {
         switch (type) {
-            case 'top':
+            case "top":
                 this.camera.position.set(0, 0, 50);
                 break;
-            case 'side':
+            case "side":
                 this.camera.position.set(0, 50, 0);
                 break;
-            case 'isometric':
+            case "isometric":
                 this.camera.position.set(25, 25, 25);
                 break;
         }
@@ -508,12 +598,16 @@ export class GraphRenderer {
         }
 
         // Check if camera moved significantly (Pos + Target)
-        const cameraChanged = this.camera.position.distanceTo(this.lastCameraPosition) > 0.1;
+        const cameraChanged =
+            this.camera.position.distanceTo(this.lastCameraPosition) > 0.1;
         // @ts-ignore - OrbitControls target access
-        const targetChanged = this.input.controls.target.distanceTo(this.lastCameraTarget) > 0.1;
+        const targetChanged =
+            this.input.controls.target.distanceTo(this.lastCameraTarget) > 0.1;
 
         if (cameraChanged || targetChanged) {
-            console.log(`[GraphRenderer] Camera movement detected. CamDiff: ${this.camera.position.distanceTo(this.lastCameraPosition).toFixed(3)}, TargetDiff: ${this.input.controls.target.distanceTo(this.lastCameraTarget).toFixed(3)}`);
+            console.log(
+                `[GraphRenderer] Camera movement detected. CamDiff: ${this.camera.position.distanceTo(this.lastCameraPosition).toFixed(3)}, TargetDiff: ${this.input.controls.target.distanceTo(this.lastCameraTarget).toFixed(3)}`,
+            );
             this.scheduleUpdate(); // Use debounced version
             this.lastCameraPosition.copy(this.camera.position);
             // @ts-ignore - OrbitControls target access
@@ -527,7 +621,11 @@ export class GraphRenderer {
         if (this.needsUpdate || interactionActive) {
             this.input.update();
 
-            this.axisSystem.update(this.camera, this.activeBounds, this.activeSpacing);
+            this.axisSystem.update(
+                this.camera,
+                this.activeBounds,
+                this.activeSpacing,
+            );
             this.gridSystem.update(this.camera);
 
             this.renderer.render(this.scene, this.camera);

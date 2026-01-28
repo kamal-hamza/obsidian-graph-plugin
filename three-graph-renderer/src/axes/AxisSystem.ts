@@ -1,5 +1,5 @@
 import { Line, BufferGeometry, LineBasicMaterial, Vector3, Camera, Frustum, Matrix4, Object3D, Vector2 } from 'three';
-import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
+import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { ThemeConfig } from '../config/ThemeConfig';
 
 export class AxisSystem {
