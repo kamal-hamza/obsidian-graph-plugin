@@ -1,16 +1,21 @@
-import { Line, BufferGeometry, LineBasicMaterial, Vector3, Camera, Frustum, Matrix4, Object3D, Vector2 } from 'three';
+import { ArrowHelper, Vector3, Camera, Frustum, Matrix4, Object3D, Vector2, Color } from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { ThemeConfig } from '../config/ThemeConfig';
 
 export class AxisSystem {
     private parent: Object3D;
-    private xLine: Line;
-    private yLine: Line;
-    private zLine: Line;
+    private theme: ThemeConfig;
+    private xArrow: ArrowHelper;
+    private yArrow: ArrowHelper;
+    private zArrow: ArrowHelper;
 
     private xTitle: CSS2DObject;
     private yTitle: CSS2DObject;
     private zTitle: CSS2DObject;
+
+    // Configuration for arrow appearance
+    private readonly headLength = 0.5;
+    private readonly headWidth = 0.3;
 
 
     private pool: CSS2DObject[] = [];
@@ -21,17 +26,45 @@ export class AxisSystem {
 
     constructor(parent: Object3D, theme: ThemeConfig) {
         this.parent = parent;
+        this.theme = theme;
 
-        const mat = new LineBasicMaterial({ color: theme.axisColor });
+        const axisColor = new Color(theme.axisColor);
 
-        // Initialize with a single point at the origin (0,0,0)
-        this.xLine = new Line(new BufferGeometry().setFromPoints([new Vector3(0, 0, 0), new Vector3(0, 0, 0)]), mat);
-        this.yLine = new Line(new BufferGeometry().setFromPoints([new Vector3(0, 0, 0), new Vector3(0, 0, 0)]), mat);
-        this.zLine = new Line(new BufferGeometry().setFromPoints([new Vector3(0, 0, 0), new Vector3(0, 0, 0)]), mat);
+        // Initialize Arrows pointing in positive directions.
+        // Lengths and positions will be set dynamically in updateBounds().
+        
+        // X-Axis Arrow (+X direction)
+        this.xArrow = new ArrowHelper(
+            new Vector3(1, 0, 0), // Direction
+            new Vector3(0, 0, 0), // Origin
+            1, // Placeholder length
+            axisColor,
+            this.headLength,
+            this.headWidth
+        );
+        parent.add(this.xArrow);
 
-        parent.add(this.xLine);
-        parent.add(this.yLine);
-        parent.add(this.zLine);
+        // Y-Axis Arrow (+Y direction)
+        this.yArrow = new ArrowHelper(
+            new Vector3(0, 1, 0),
+            new Vector3(0, 0, 0),
+            1,
+            axisColor,
+            this.headLength,
+            this.headWidth
+        );
+        parent.add(this.yArrow);
+
+        // Z-Axis Arrow (+Z direction)
+        this.zArrow = new ArrowHelper(
+            new Vector3(0, 0, 1),
+            new Vector3(0, 0, 0),
+            1,
+            axisColor,
+            this.headLength,
+            this.headWidth
+        );
+        parent.add(this.zArrow);
 
         // Pre-populate pool
         for (let i = 0; i < 50; i++) {
@@ -52,15 +85,15 @@ export class AxisSystem {
         div.textContent = text;
         div.style.fontWeight = 'bold';
         div.style.fontSize = '14px';
-        div.style.color = 'var(--text-normal, #888)';
+        div.style.color = this.theme.labelColor;
         return new CSS2DObject(div);
     }
 
     private createLabelObject(): CSS2DObject {
         const div = document.createElement('div');
         div.className = 'axis-label';
-        div.style.color = 'var(--text-normal, #888)';
-        div.style.fontFamily = 'var(--font-interface, sans-serif)';
+        div.style.color = this.theme.labelColor;
+        div.style.fontFamily = this.theme.fontFamily;
         div.style.fontSize = '12px';
         div.style.userSelect = 'none';
         div.style.position = 'absolute'; // Ensure it doesn't flow
@@ -75,25 +108,22 @@ export class AxisSystem {
         this.projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
         this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
 
-        // --- NEW: Bound the Axis Lines ---
-        // Update the geometry of the lines to start/end exactly at the box boundaries
-        this.xLine.geometry.setFromPoints([
-            new Vector3(bounds.xMin, 0, 0),
-            new Vector3(bounds.xMax, 0, 0)
-        ]);
-        this.yLine.geometry.setFromPoints([
-            new Vector3(0, bounds.yMin, 0),
-            new Vector3(0, bounds.yMax, 0)
-        ]);
-        this.zLine.geometry.setFromPoints([
-            new Vector3(0, 0, bounds.zMin),
-            new Vector3(0, 0, bounds.zMax)
-        ]);
+        // Update X Arrow
+        const xLen = bounds.xMax - bounds.xMin;
+        // Start arrow at the negative boundary
+        this.xArrow.position.set(bounds.xMin, 0, 0);
+        // Set length to span the whole range. Arrowhead appears at the end.
+        this.xArrow.setLength(xLen, this.headLength, this.headWidth);
 
-        // Mark for GPU update
-        this.xLine.geometry.attributes.position.needsUpdate = true;
-        this.yLine.geometry.attributes.position.needsUpdate = true;
-        this.zLine.geometry.attributes.position.needsUpdate = true;
+        // Update Y Arrow
+        const yLen = bounds.yMax - bounds.yMin;
+        this.yArrow.position.set(0, bounds.yMin, 0);
+        this.yArrow.setLength(yLen, this.headLength, this.headWidth);
+
+        // Update Z Arrow
+        const zLen = bounds.zMax - bounds.zMin;
+        this.zArrow.position.set(0, 0, bounds.zMin);
+        this.zArrow.setLength(zLen, this.headLength, this.headWidth);
 
         // Update Titles
         this.xTitle.position.set(bounds.xMax + 1, 0, 0);
@@ -230,8 +260,20 @@ export class AxisSystem {
     }
 
     public updateTheme(theme: ThemeConfig) {
-        (this.xLine.material as LineBasicMaterial).color.set(theme.axisColor);
-        (this.yLine.material as LineBasicMaterial).color.set(theme.axisColor);
-        (this.zLine.material as LineBasicMaterial).color.set(theme.axisColor);
+        this.theme = theme;
+        const axisColor = new Color(theme.axisColor);
+        this.xArrow.setColor(axisColor);
+        this.yArrow.setColor(axisColor);
+        this.zArrow.setColor(axisColor);
+        
+        // Update label colors
+        this.xTitle.element.style.color = theme.labelColor;
+        this.yTitle.element.style.color = theme.labelColor;
+        this.zTitle.element.style.color = theme.labelColor;
+        
+        this.activeLabels.forEach(label => {
+            label.element.style.color = theme.labelColor;
+            label.element.style.fontFamily = theme.fontFamily;
+        });
     }
 }

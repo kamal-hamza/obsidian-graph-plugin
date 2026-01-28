@@ -50,7 +50,7 @@ export class GridSystem {
 
         // 2. Create Cage (Box)
         const cageGeo = new BoxGeometry(1, 1, 1);
-        const cageMat = new LineBasicMaterial({ color: theme.axisColor, transparent: true, opacity: 0.3 });
+        const cageMat = new LineBasicMaterial({ color: theme.gridCageColor, transparent: true, opacity: 0.5 });
         this.cage = new LineSegments(new WireframeGeometry(cageGeo), cageMat);
         this.group.add(this.cage);
     }
@@ -125,6 +125,9 @@ export class GridSystem {
         (this.xyPlane.material as MeshBasicMaterial).color.set(theme.gridColor);
         (this.xzPlane.material as MeshBasicMaterial).color.set(theme.gridColor);
         (this.yzPlane.material as MeshBasicMaterial).color.set(theme.gridColor);
+        
+        // Update cage color
+        (this.cage.material as LineBasicMaterial).color.set(theme.gridCageColor);
     }
 
     public update(camera: Camera) {
