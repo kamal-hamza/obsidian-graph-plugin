@@ -1,0 +1,57 @@
+# Source files (only ship dist)
+src/
+*.ts
+!*.d.ts
+
+# Development files
+node_modules/
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Build configuration
+tsconfig.json
+vite.config.ts
+bunfig.toml
+
+# Development assets
+index.html
+public/
+
+# Scripts
+scripts/
+
+# Engine source (WASM binary is already in dist)
+engine/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun-debug.log*
+
+# Lock files
+bun.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Test files
+*.test.ts
+*.spec.ts
+__tests__/
+test/
+tests/
+
+# Documentation source
+docs/
+
+# Misc
+.DS_Store
+*.swp
+*.swo
+*~
+.env
+.env.local

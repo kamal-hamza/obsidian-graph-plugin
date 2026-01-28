@@ -5,26 +5,45 @@
   "main": "dist/three-graph-renderer.umd.js",
   "module": "dist/three-graph-renderer.es.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/three-graph-renderer.es.js",
+      "require": "./dist/three-graph-renderer.umd.js"
+    }
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "build-engine": "bash ./scripts/build-engine.sh",
-    "preview": "vite preview"
+    "build:full": "bun run build-engine && bun run build",
+    "preview": "vite preview",
+    "prepublishOnly": "bun run build:full"
   },
   "keywords": [
     "three.js",
     "graph",
     "renderer",
-    "obsidian"
+    "obsidian",
+    "3d",
+    "visualization",
+    "webassembly",
+    "wasm"
   ],
   "author": "",
   "license": "MIT",
-  "dependencies": {
+  "peerDependencies": {
     "three": "^0.182.0"
   },
   "devDependencies": {
     "@types/node": "^25.0.10",
     "@types/three": "^0.182.0",
+    "three": "^0.182.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vite-plugin-dts": "^4.5.4"
