@@ -97,11 +97,15 @@ export class GraphGeometry {
             if (this.contourGeometry.index) this.contourGeometry.index.needsUpdate = true;
         }
 
-        // 4. Compute Normals
+        // 4. Compute Normals and Bounding Volumes
         this.geometry.computeVertexNormals();
+        
+        // Crucial: Tell Three.js the object's bounds have changed so it doesn't get culled erroneously
+        this.geometry.computeBoundingBox();
         this.geometry.computeBoundingSphere();
 
-        // FIX: Calculate bounding sphere for the contour geometry so it isn't culled
+        // FIX: Calculate bounding volumes for the contour geometry so it isn't culled
+        this.contourGeometry.computeBoundingBox();
         this.contourGeometry.computeBoundingSphere();
 
         this.geometry.attributes.position.needsUpdate = true;
@@ -143,6 +147,10 @@ export class GraphGeometry {
                 posAttr.setZ(i, z);
             }
             posAttr.needsUpdate = true;
+            
+            // Recompute bounding volumes after floor level change
+            this.contourGeometry.computeBoundingBox();
+            this.contourGeometry.computeBoundingSphere();
         }
     }
 

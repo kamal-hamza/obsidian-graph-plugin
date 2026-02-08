@@ -64,7 +64,7 @@ export class GraphRenderer {
     private lastCameraTarget = new Vector3();
     private isUpdating = false;
     private lastUpdateBounds = { xMin: 0, xMax: 0, yMin: 0, yMax: 0 };
-    private currentFormula: string = ""; // Store formula for regeneration
+    private formulas: Map<string, string> = new Map(); // Store formulas for regeneration
 
     private updateDebounceTimer: number | null = null;
     // Wait for a 400ms pause in movement before regenerating
@@ -201,13 +201,18 @@ export class GraphRenderer {
     }
 
     public async setExpression(formula: string) {
-        this.currentFormula = formula;
+        // Add as the default trace
+        await this.addTrace('default', formula);
 
-        // Reset dynamic view tracking to force an update
-        this.lastUpdateBounds = { xMin: 0, xMax: 0, yMin: 0, yMax: 0 };
-
-        // Use updateDynamicView to handle the initial render with correct camera-based bounds
-        await this.updateDynamicView();
+        // Initialize lastUpdateBounds to the active bounds to prevent immediate re-render
+        if (this.activeBounds) {
+            this.lastUpdateBounds = {
+                xMin: this.activeBounds.xMin,
+                xMax: this.activeBounds.xMax,
+                yMin: this.activeBounds.yMin,
+                yMax: this.activeBounds.yMax,
+            };
+        }
     }
 
     private updateAspectRatio() {
@@ -223,10 +228,8 @@ export class GraphRenderer {
         range?: any,
         resolutionOverride?: number,
     ) {
-        // Capture formula for dynamic regeneration
-        if (id === "default" || !this.currentFormula) {
-            this.currentFormula = formula;
-        }
+        // Store the formula so it can be used for dynamic updates later
+        this.formulas.set(id, formula);
 
         // Determine resolution based on the size of the range
         // Higher range = more points to keep it smooth
@@ -298,8 +301,11 @@ export class GraphRenderer {
             zMax: dataZScale.getNiceMax(),
         };
 
-        // 3. Calculate data using the determined bounds
-        const data = this.computer.calculate(formula, bounds, resolution);
+        // 3. Calculate data using appropriate range
+        // For initial load (no range provided), use the raw range to avoid over-expansion
+        // For dynamic updates (range provided), use that range to fill viewport
+        const samplingRange = range || rawRange;
+        const data = this.computer.calculate(formula, samplingRange, resolution);
 
         // Use largest spacing for uniform grid/ticks? Or independent?
         const primarySpacing = niceX.getTickSpacing();
@@ -427,8 +433,8 @@ export class GraphRenderer {
             );
 
             // USE BUFFER TO CREATE MARGINS
-            // 0.8 means the graph will always fill 80% of the view upon regeneration.
-            const bufferFactor = 0.5;
+            // 1.1 fills the view with a slight safety margin for panning
+            const bufferFactor = 1.1;
             const halfWidth = (visibleWidth / 2) * bufferFactor;
             const halfHeight = (visibleHeight / 2) * bufferFactor;
 
@@ -443,13 +449,13 @@ export class GraphRenderer {
             const currentCenterY =
                 (this.lastUpdateBounds.yMax + this.lastUpdateBounds.yMin) / 2;
 
-            // REFINED TRIGGER LOGIC
-            // 1. Zoom Out: Regenerate if graph shrinks to < 40% of the screen (span > currentSpan * 2.5)
-            const zoomOutTrigger = span > currentSpan * 2.5;
+            // REFINED TRIGGER LOGIC - More sensitive for better responsiveness
+            // 1. Zoom Out: Regenerate earlier when view expands 50% beyond current graph
+            const zoomOutTrigger = span > currentSpan * 1.5;
 
-            // 2. Zoom In: Regenerate if we are seeing less than 50% of the current graph (span < currentSpan * 0.5)
+            // 2. Zoom In: Regenerate when viewing less than 70% of the current graph
             // This ensures we get higher resolution before it looks "pixelated."
-            const zoomInTrigger = span < currentSpan * 0.5;
+            const zoomInTrigger = span < currentSpan * 0.7;
 
             const zoomChanged = zoomInTrigger || zoomOutTrigger;
 
@@ -478,25 +484,30 @@ export class GraphRenderer {
                 yMax: target.y + halfHeight,
             };
 
-            // Perform single high-resolution update
-            if (this.currentFormula) {
+            // Perform single high-resolution update for all traces
+            if (this.formulas.size > 0) {
                 // Determine the ideal resolution once
                 const res = this.calculateLOD(span);
                 console.log(
-                    `[GraphRenderer] Triggering Update: res=${res}, range=`,
+                    `[GraphRenderer] Triggering Update for ${this.formulas.size} trace(s): res=${res}, range=`,
                     dynamicRange,
                 );
                 
-                // Perform the update directly (no setTimeout to avoid race conditions)
-                await this.addTrace(
-                    "default",
-                    this.currentFormula,
-                    dynamicRange,
-                    res,
-                );
+                // Update all traces in parallel
+                const updatePromises = Array.from(this.formulas.entries()).map(([id, formula]) => {
+                    return this.addTrace(
+                        id,
+                        formula,
+                        dynamicRange,
+                        res,
+                    );
+                });
+
+                // Wait for all WASM calculations to finish
+                await Promise.all(updatePromises);
             } else {
                 console.warn(
-                    "[GraphRenderer] Skipping update: No currentFormula set",
+                    "[GraphRenderer] Skipping update: No formulas registered",
                 );
             }
 
@@ -517,8 +528,8 @@ export class GraphRenderer {
         if (geometry) {
             this.graphGroup.remove(geometry.getObject());
             this.graphGroup.remove(geometry.getContourObject());
-            // Dispose geometry/material?
             this.traces.delete(id);
+            this.formulas.delete(id);
             this.legend.removeTrace(id);
             this.needsUpdate = true;
         }
