@@ -1,0 +1,98 @@
+# Node modules
+node_modules/
+.pnpm-store/
+.yarn/
+.npm/
+
+# Build outputs
+dist/
+build/
+out/
+*.js.map
+main.js
+math_engine.js
+
+# C++ build artifacts
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*.wasm
+build/
+build-wasm/
+bin/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+!toolchain.cmake
+compile_commands.json
+wasm/
+
+# WASM compilation outputs
+engine/build/
+engine/build-wasm/
+engine/bin/
+engine/wasm/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-*
+.clangd/
+.cache/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing
+coverage/
+.nyc_output/
+*.test.js
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Lock files (optional - uncomment if you want to ignore them)
+# package-lock.json
+# yarn.lock
+# bun.lock
+
+# Obsidian plugin specific
+.obsidian/
+.trash/
+
+# Backup files
+*.bak
+*.backup
+*~

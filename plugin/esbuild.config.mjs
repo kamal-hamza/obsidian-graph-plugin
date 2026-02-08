@@ -1,7 +1,7 @@
 import esbuild from "esbuild";
 import process from "process";
 import { builtinModules } from 'node:module';
-import { copyFileSync, existsSync, mkdirSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 
 const banner =
@@ -13,11 +13,12 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = (process.argv[2] === "production");
 
-// Plugin to copy WASM files after build
-const copyWasmPlugin = {
-	name: 'copy-wasm',
+// Plugin to copy WASM files and handle MathBox CSS after build
+const copyAssetsPlugin = {
+	name: 'copy-assets',
 	setup(build) {
 		build.onEnd(() => {
+			// Copy WASM module
 			const wasmSource = resolve('src/wasm/math_engine.js');
 			const wasmDest = resolve('math_engine.js');
 			
@@ -26,6 +27,24 @@ const copyWasmPlugin = {
 				console.log('✓ Copied WASM module to output directory');
 			} else {
 				console.warn('⚠ WASM module not found. Run build-plugin.sh to compile C++ code first.');
+			}
+
+			// Copy MathBox CSS to styles.css
+			const mathboxCssPath = resolve('node_modules/mathbox/build/mathbox.css');
+			const stylesPath = resolve('styles.css');
+			
+			if (existsSync(mathboxCssPath)) {
+				const mathboxCss = readFileSync(mathboxCssPath, 'utf-8');
+				const existingStyles = existsSync(stylesPath) ? readFileSync(stylesPath, 'utf-8') : '';
+				
+				// Only append if not already included
+				if (!existingStyles.includes('/* MathBox Core Styles */')) {
+					const combinedStyles = existingStyles + '\n\n/* MathBox Core Styles */\n' + mathboxCss;
+					writeFileSync(stylesPath, combinedStyles);
+					console.log('✓ Added MathBox CSS to styles.css');
+				}
+			} else {
+				console.warn('⚠ MathBox CSS not found. Install dependencies first.');
 			}
 		});
 	}
@@ -60,9 +79,10 @@ const context = await esbuild.context({
 	treeShaking: true,
 	outfile: "main.js",
 	minify: prod,
-	plugins: [copyWasmPlugin],
+	plugins: [copyAssetsPlugin],
 	loader: {
 		'.wasm': 'file',
+		'.css': 'text',
 	},
 });
 

@@ -1,14 +1,30 @@
 import { Plugin, MarkdownPostProcessorContext, Notice } from 'obsidian';
 import { WasmLoader } from './wasm/loader';
 import { ThemeManager } from './rendering/theme-manager';
-import { RendererPlotly } from './rendering/renderer-plotly';
+import { RendererMathBox } from './rendering/renderer-mathbox';
 import { EquationAnalyzer } from './utils/equation-analyzer';
 import type { GraphConfig, MathEngineModule, Point, InterestingPoint, GraphResult } from './types';
+
+// Module-level cache for rendered graphs (de-duplication)
+const renderedGraphs = new Map<string, HTMLElement>();
+
+// Simple hash function for equation de-duplication
+function hashEquation(equation: string, type: string): string {
+	const str = `${equation}|${type}`;
+	let hash = 0;
+	for (let i = 0; i < str.length; i++) {
+		const char = str.charCodeAt(i);
+		hash = ((hash << 5) - hash) + char;
+		hash = hash & hash; // Convert to 32bit integer
+	}
+	return `graph-${Math.abs(hash).toString(36)}`;
+}
 
 export default class MathGraphPlugin extends Plugin {
 	private wasmModule: MathEngineModule | null = null;
 	private themeManager: ThemeManager;
-	private activeRenderers: Set<RendererPlotly> = new Set();
+	private activeRenderers: Set<RendererMathBox> = new Set();
+	private readonly MAX_CONTEXTS = 4; // Limit to 4 concurrent WebGL contexts
 
 	async onload() {
 		console.log('Loading Math Graph Plugin...');
@@ -80,13 +96,34 @@ export default class MathGraphPlugin extends Plugin {
 		el: HTMLElement,
 		ctx: MarkdownPostProcessorContext
 	): Promise<void> {
-		// Parse the configuration from the code block
+		// Parse the configuration first to get equation
 		const config = await this.parseConfig(source);
 
 		if (!config.equation) {
 			this.renderError(el, 'No equation specified. Use: equation: <formula>');
 			return;
 		}
+
+		// Create unique hash for this equation
+		const graphHash = hashEquation(config.equation, config.type);
+		
+		// Check if already rendered using hash (prevents duplicate renders during initial load)
+		if (renderedGraphs.has(graphHash)) {
+			console.log('[Plugin] Graph already rendered (hash match), skipping:', graphHash);
+			// Copy the existing rendered content
+			const existingContainer = renderedGraphs.get(graphHash);
+			if (existingContainer && existingContainer.isConnected) {
+				el.empty();
+				el.appendChild(existingContainer.cloneNode(true));
+				return;
+			} else {
+				// Existing container was removed, clean up and re-render
+				renderedGraphs.delete(graphHash);
+			}
+		}
+
+		// Mark this element as being processed
+		el.setAttribute('data-math-graph-hash', graphHash);
 
 		// Create container for the graph
 		const container = el.createDiv({ cls: 'math-graph-container' });
@@ -118,6 +155,10 @@ export default class MathGraphPlugin extends Plugin {
 			} else {
 				this.renderError(graphContainer, `Unknown graph type: ${config.type}. Use '2d' or '3d'.`);
 			}
+			
+			// Store this rendered container for de-duplication
+			renderedGraphs.set(graphHash, container);
+			console.log('[Plugin] Graph rendered and cached:', graphHash);
 		} catch (error) {
 			console.error('Error rendering graph:', error);
 			this.renderError(graphContainer, `Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -389,8 +430,18 @@ export default class MathGraphPlugin extends Plugin {
 			errorMessage: wasmResult.errorMessage
 		};
 
-		// Create unified Plotly renderer with WASM for dynamic recalculation
-		const renderer = new RendererPlotly(container, this.wasmModule);
+		// Cleanup old renderers if we're at the limit
+		if (this.activeRenderers.size >= this.MAX_CONTEXTS) {
+			console.log('[Plugin] Context limit reached, cleaning up oldest renderer');
+			const oldestRenderer = Array.from(this.activeRenderers)[0];
+			if (oldestRenderer) {
+				oldestRenderer.destroy();
+				this.activeRenderers.delete(oldestRenderer);
+			}
+		}
+
+		// Create MathBox renderer with WASM for dynamic recalculation
+		const renderer = new RendererMathBox(container, this.wasmModule);
 		
 		// Track active renderer
 		this.activeRenderers.add(renderer);
@@ -411,7 +462,7 @@ export default class MathGraphPlugin extends Plugin {
 			observer.observe(container.parentElement, { childList: true, subtree: true });
 		}
 		
-		renderer.render(result, {
+		await renderer.render(result, {
 			width: config.width ?? 700,
 			height: config.height ?? 500,
 			showGrid: true,
@@ -466,8 +517,18 @@ export default class MathGraphPlugin extends Plugin {
 			errorMessage: wasmResult.errorMessage
 		};
 
-		// Create unified Plotly renderer
-		const renderer = new RendererPlotly(container, this.wasmModule);
+		// Cleanup old renderers if we're at the limit
+		if (this.activeRenderers.size >= this.MAX_CONTEXTS) {
+			console.log('[Plugin] Context limit reached, cleaning up oldest renderer');
+			const oldestRenderer = Array.from(this.activeRenderers)[0];
+			if (oldestRenderer) {
+				oldestRenderer.destroy();
+				this.activeRenderers.delete(oldestRenderer);
+			}
+		}
+
+		// Create renderer
+		const renderer = new RendererMathBox(container, this.wasmModule);
 		
 		// Track active renderer
 		this.activeRenderers.add(renderer);
@@ -488,7 +549,7 @@ export default class MathGraphPlugin extends Plugin {
 			observer.observe(container.parentElement, { childList: true, subtree: true });
 		}
 		
-		renderer.render(result, {
+		await renderer.render(result, {
 			width: config.width ?? 700,
 			height: config.height ?? 700,
 			showGrid: true,
